@@ -1,0 +1,93 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "versarr"
+version = "0.1.0"
+description = "Persistent sidecar-first lyrics enrichment daemon for self-hosted music libraries."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "Versarr Contributors" }
+]
+dependencies = [
+  "alembic>=1.16.0,<2.0.0",
+  "fastapi>=0.115.0,<1.0.0",
+  "httpx>=0.28.0,<1.0.0",
+  "mutagen>=1.47.0,<2.0.0",
+  "prometheus-client>=0.22.0,<1.0.0",
+  "pydantic>=2.11.0,<3.0.0",
+  "pydantic-settings>=2.9.0,<3.0.0",
+  "sqlalchemy>=2.0.40,<3.0.0",
+  "structlog>=25.3.0,<26.0.0",
+  "typer>=0.16.0,<1.0.0",
+  "uvicorn>=0.34.0,<1.0.0",
+  "watchdog>=6.0.0,<7.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.15.0,<2.0.0",
+  "pip-audit>=2.9.0,<3.0.0",
+  "pytest>=8.3.0,<9.0.0",
+  "pytest-asyncio>=1.0.0,<2.0.0",
+  "pytest-cov>=6.1.0,<7.0.0",
+  "ruff>=0.11.0,<1.0.0",
+  "trio>=0.30.0,<1.0.0"
+]
+
+[project.scripts]
+versarr = "versarr.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/versarr"]
+
+[tool.hatch.build]
+include = [
+  "src/versarr/**",
+  "alembic/**",
+  "alembic.ini"
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+markers = [
+  "interop: tests that validate server interoperability",
+  "container: tests that require a built container image"
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "F",
+  "I",
+  "N",
+  "UP",
+  "B",
+  "A",
+  "C4",
+  "DTZ",
+  "ISC",
+  "PIE",
+  "PT",
+  "RET",
+  "RUF"
+]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["versarr"]
+strict = true
+warn_unused_configs = true
+plugins = []

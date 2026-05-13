@@ -1,0 +1,22 @@
+services:
+  versarr:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: ghcr.io/example/versarr:dev
+    environment:
+      VERSARR_LIBRARY_ROOTS: '["/music"]'
+      VERSARR_STATE_DIR: /state
+      VERSARR_SQLITE_PATH: /state/versarr.db
+    volumes:
+      - versarr-state:/state
+      - /srv/music:/music
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  versarr-state:
