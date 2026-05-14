@@ -124,7 +124,8 @@ class VersarrRuntime:
             repository=self.repository,
             clock=self.clock,
             metrics=self.metrics,
-            stale_before_seconds=self.settings.retry.lease_ttl_seconds,
+            # Lease TTL defines how long ownership lasts; startup recovery adds no extra grace.
+            stale_before_seconds=0,
         )
         await recovery.recover_stale_jobs()
 

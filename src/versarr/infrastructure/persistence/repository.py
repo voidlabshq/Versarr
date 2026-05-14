@@ -371,14 +371,14 @@ class SqliteStateRepository(StateRepository):
         return await asyncio.to_thread(self._recover_stale_jobs_sync, now, stale_before_seconds)
 
     def _recover_stale_jobs_sync(self, now: datetime, stale_before_seconds: int) -> int:
-        stale_before = now - timedelta(seconds=stale_before_seconds)
+        del stale_before_seconds
         with self._engine.begin() as connection:
             result = connection.execute(
                 update(jobs)
                 .where(
                     and_(
                         jobs.c.state == JobState.PROCESSING,
-                        jobs.c.lease_until < stale_before,
+                        jobs.c.lease_until < now,
                     )
                 )
                 .values(
