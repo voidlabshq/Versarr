@@ -23,11 +23,13 @@ from versarr.domain import (
     ProcessingCategory,
     ProcessingOutcome,
     ProvenanceRecord,
+    ProviderResult,
     ProviderStatus,
     RetryClassification,
     RetryDecision,
     ScanKind,
     TriggerKind,
+    hash_normalized_lyrics,
     normalize_lyrics_text,
 )
 from versarr.observability import MetricsFacade, get_logger
@@ -207,6 +209,8 @@ class JobProcessor:
 
         provenance = await self.repository.get_provenance(job.media_path)
         sidecar_path = job.media_path.with_suffix(".lrc")
+        repair_missing_provenance = False
+        current_sidecar_hash: str | None = None
         if not snapshot.lyrics_presence.sidecar_exists and provenance is not None and provenance.sidecar_deleted and not job.force:
             return _outcome(ProcessingCategory.PRESERVED, "sidecar_deleted_preserved")
         if not snapshot.lyrics_presence.sidecar_exists and provenance is not None and not provenance.sidecar_deleted and not job.force:
@@ -214,12 +218,14 @@ class JobProcessor:
             return _outcome(ProcessingCategory.PRESERVED, "sidecar_deleted_preserved")
 
         if snapshot.lyrics_presence.sidecar_exists:
-            current_hash = await self.sidecar_writer.read_normalized_hash(sidecar_path)
+            current_sidecar_hash = await self.sidecar_writer.read_normalized_hash(sidecar_path)
             if provenance is None:
-                if snapshot.lyrics_presence.embedded_exists:
-                    self.metrics.sidecar_conflicts_total.inc()
-                return _outcome(ProcessingCategory.PRESERVED, "existing_sidecar_preserved")
-            if current_hash != provenance.normalized_lyrics_hash:
+                if job.attempt_count <= 1:
+                    if snapshot.lyrics_presence.embedded_exists:
+                        self.metrics.sidecar_conflicts_total.inc()
+                    return _outcome(ProcessingCategory.PRESERVED, "existing_sidecar_preserved")
+                repair_missing_provenance = True
+            elif current_sidecar_hash != provenance.normalized_lyrics_hash:
                 await self.repository.mark_manual_diverged(job.media_path)
                 self.metrics.manual_divergence_total.inc()
                 if not (job.force and job.overwrite_existing and job.allow_manual_overwrite):
@@ -231,16 +237,17 @@ class JobProcessor:
             self.metrics.embedded_preserved_total.inc()
             return _outcome(ProcessingCategory.PRESERVED, "existing_embedded_lyrics_preserved")
 
-        if previous_snapshot is not None and previous_snapshot.meaningful_state_hash == snapshot.meaningful_state_hash and not job.force:
+        if not repair_missing_provenance and previous_snapshot is not None and previous_snapshot.meaningful_state_hash == snapshot.meaningful_state_hash and not job.force:
             return _outcome(ProcessingCategory.NOOP, "no_meaningful_change")
 
-        cooldown = await self.repository.get_cooldown(
-            snapshot.identity.normalized_lookup_key,
-            "lrclib",
-        )
         now = self.clock.now()
-        if cooldown is not None and cooldown > now and not job.force:
-            return _outcome(ProcessingCategory.NOOP, "cooldown_active")
+        if not repair_missing_provenance:
+            cooldown = await self.repository.get_cooldown(
+                snapshot.identity.normalized_lookup_key,
+                "lrclib",
+            )
+            if cooldown is not None and cooldown > now and not job.force:
+                return _outcome(ProcessingCategory.NOOP, "cooldown_active")
 
         provider_result = await self.provider.fetch(snapshot.identity)
         if provider_result.status == ProviderStatus.TRANSIENT_FAILURE:
@@ -297,23 +304,38 @@ class JobProcessor:
             return _outcome(ProcessingCategory.TERMINAL, "provider_missing_lyrics")
 
         normalized_lyrics = normalize_lyrics_text(provider_result.lyrics_text)
+        normalized_hash = hash_normalized_lyrics(normalized_lyrics)
+        if repair_missing_provenance:
+            if current_sidecar_hash != normalized_hash:
+                return _outcome(ProcessingCategory.PRESERVED, "existing_sidecar_preserved")
+            await self.repository.record_provenance(
+                _build_provenance_record(
+                    media_path=job.media_path,
+                    sidecar_path=sidecar_path,
+                    normalized_hash=normalized_hash,
+                    provider_result=provider_result,
+                    written_at=now,
+                    embedded_exists=snapshot.lyrics_presence.embedded_exists,
+                )
+            )
+            return _outcome(
+                ProcessingCategory.PRESERVED,
+                "provenance_repaired",
+                provider_status=provider_result.status,
+            )
+
         write_started = perf_counter()
         write_result = await self.sidecar_writer.write(sidecar_path, normalized_lyrics)
         self.metrics.sidecar_write_seconds.observe(perf_counter() - write_started)
         self.metrics.sidecar_writes_total.labels(mode="create" if write_result.created else "replace").inc()
         await self.repository.record_provenance(
-            ProvenanceRecord(
+            _build_provenance_record(
                 media_path=job.media_path,
                 sidecar_path=write_result.sidecar_path,
-                artifact_type="lrc",
-                normalized_lyrics_hash=write_result.normalized_hash,
-                provider_name=provider_result.provider_name,
-                provider_track_id=provider_result.provider_track_id,
-                synced=provider_result.synced,
-                last_written_at=now,
-                manual_diverged=False,
-                sidecar_deleted=False,
-                conflict_marker="embedded_present" if snapshot.lyrics_presence.embedded_exists else None,
+                normalized_hash=write_result.normalized_hash,
+                provider_result=provider_result,
+                written_at=now,
+                embedded_exists=snapshot.lyrics_presence.embedded_exists,
             )
         )
         if self.remember_written_sidecar is not None:
@@ -453,4 +475,28 @@ def _outcome(
             "outcome": str(category),
             "reason": reason_code,
         },
+    )
+
+
+def _build_provenance_record(
+    *,
+    media_path: Path,
+    sidecar_path: Path,
+    normalized_hash: str,
+    provider_result: ProviderResult,
+    written_at: datetime,
+    embedded_exists: bool,
+) -> ProvenanceRecord:
+    return ProvenanceRecord(
+        media_path=media_path,
+        sidecar_path=sidecar_path,
+        artifact_type="lrc",
+        normalized_lyrics_hash=normalized_hash,
+        provider_name=provider_result.provider_name,
+        provider_track_id=provider_result.provider_track_id,
+        synced=provider_result.synced,
+        last_written_at=written_at,
+        manual_diverged=False,
+        sidecar_deleted=False,
+        conflict_marker="embedded_present" if embedded_exists else None,
     )
