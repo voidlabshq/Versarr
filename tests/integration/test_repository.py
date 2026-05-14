@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -168,3 +169,26 @@ async def test_repository_does_not_recover_job_before_lease_expiry(sqlite_engine
 
     assert recovered == 0
     assert requeued is None
+
+@pytest.mark.asyncio
+async def test_repository_does_not_double_lease_same_job(sqlite_engine: Engine) -> None:
+    repository = SqliteStateRepository(sqlite_engine)
+    media_path = Path("/music/race.flac")
+
+    await repository.enqueue_path(
+        library_root=Path("/music"),
+        media_path=media_path,
+        trigger=TriggerKind.WATCHER,
+        priority="watcher",
+        event_kind="created",
+    )
+
+    leased_1, leased_2 = await asyncio.gather(
+        repository.lease_next_ready_job("worker-1", datetime.now(UTC)),
+        repository.lease_next_ready_job("worker-2", datetime.now(UTC)),
+    )
+
+    leased = [job for job in (leased_1, leased_2) if job is not None]
+
+    assert len(leased) == 1
+    assert leased[0].media_path == media_path
