@@ -46,6 +46,7 @@ class AtomicLrcWriter(SidecarWriter):
         if final_bytes != payload:
             msg = "final sidecar verification failed"
             raise OSError(msg)
+        self._fsync_directory(parent)
         digest = hash_normalized_lyrics(payload.decode("utf-8"))
         self._logger.info(
             "sidecar_write_completed",
@@ -63,3 +64,16 @@ class AtomicLrcWriter(SidecarWriter):
 
     def _read_normalized_hash_sync(self, sidecar_path: Path) -> str:
         return hash_normalized_lyrics(sidecar_path.read_text(encoding="utf-8"))
+
+    def _fsync_directory(self, directory_path: Path) -> None:
+        flags = os.O_RDONLY
+        if hasattr(os, "O_DIRECTORY"):
+            flags |= os.O_DIRECTORY
+        try:
+            directory_fd = os.open(directory_path, flags)
+        except OSError:
+            return
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
