@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from alembic import command
@@ -26,10 +27,21 @@ def run_migrations(sqlite_path: Path) -> None:
 
 
 def _find_alembic_ini() -> Path:
+    env_override = os.getenv("VERSARR_ALEMBIC_INI")
+    if env_override:
+        candidate = Path(env_override).resolve()
+        if candidate.exists():
+            return candidate
+
+    cwd_candidate = Path("/app/alembic.ini")
+    if cwd_candidate.exists():
+        return cwd_candidate
+
     current = Path(__file__).resolve()
     for parent in current.parents:
         candidate = parent / "alembic.ini"
         if candidate.exists():
             return candidate
+
     msg = "unable to locate alembic.ini"
     raise FileNotFoundError(msg)
