@@ -117,49 +117,63 @@ class SqliteStateRepository(StateRepository):
 
     def _lease_next_ready_job_sync(self, worker_id: str, now: datetime) -> EnrichmentJob | None:
         with self._engine.begin() as connection:
-            row = (
-                connection.execute(
-                    select(jobs)
+            while True:
+                row = (
+                    connection.execute(
+                        select(jobs)
+                        .where(
+                            and_(
+                                jobs.c.state == JobState.PENDING,
+                                jobs.c.next_attempt_at <= now,
+                            )
+                        )
+                        .order_by(
+                            case(
+                                (jobs.c.priority == JobPriority.FORCE_MANUAL, 0),
+                                (jobs.c.priority == JobPriority.MANUAL, 1),
+                                (jobs.c.priority == JobPriority.WATCHER, 2),
+                                else_=3,
+                            ),
+                            jobs.c.next_attempt_at.asc(),
+                            jobs.c.created_at.asc(),
+                        )
+                        .limit(1)
+                    )
+                    .mappings()
+                    .first()
+                )
+
+                if row is None:
+                    return None
+
+                lease_until = now + timedelta(seconds=120)
+
+                result = connection.execute(
+                    update(jobs)
                     .where(
                         and_(
+                            jobs.c.job_key == row["job_key"],
                             jobs.c.state == JobState.PENDING,
                             jobs.c.next_attempt_at <= now,
                         )
                     )
-                    .order_by(
-                        case(
-                            (jobs.c.priority == JobPriority.FORCE_MANUAL, 0),
-                            (jobs.c.priority == JobPriority.MANUAL, 1),
-                            (jobs.c.priority == JobPriority.WATCHER, 2),
-                            else_=3,
-                        ),
-                        jobs.c.next_attempt_at.asc(),
-                        jobs.c.created_at.asc(),
+                    .values(
+                        state=JobState.PROCESSING,
+                        lease_owner=worker_id,
+                        lease_until=lease_until,
+                        attempt_count=row["attempt_count"] + 1,
+                        updated_at=now,
                     )
-                    .limit(1)
                 )
-                .mappings()
-                .first()
-            )
-            if row is None:
-                return None
-            lease_until = now + timedelta(seconds=120)
-            connection.execute(
-                update(jobs)
-                .where(jobs.c.job_key == row["job_key"])
-                .values(
-                    state=JobState.PROCESSING,
-                    lease_owner=worker_id,
-                    lease_until=lease_until,
-                    attempt_count=row["attempt_count"] + 1,
-                    updated_at=now,
-                )
-            )
-            leased = dict(row)
-            leased["state"] = JobState.PROCESSING
-            leased["lease_until"] = lease_until
-            leased["attempt_count"] = row["attempt_count"] + 1
-            return _row_to_job(leased)
+
+                if result.rowcount == 0:
+                    continue
+
+                leased = dict(row)
+                leased["state"] = JobState.PROCESSING
+                leased["lease_until"] = lease_until
+                leased["attempt_count"] = row["attempt_count"] + 1
+                return _row_to_job(leased)
 
     async def heartbeat_job(self, job_key: str, lease_until: datetime) -> None:
         await asyncio.to_thread(self._heartbeat_job_sync, job_key, lease_until)
