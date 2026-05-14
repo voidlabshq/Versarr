@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -130,9 +131,12 @@ class FakeMetadataReader:
 class FakeProvider:
     lyrics_text: str
     fetch_count: int = 0
+    delay_seconds: int = 0
 
     async def fetch(self, identity: TrackIdentity) -> ProviderResult:
         self.fetch_count += 1
+        if self.delay_seconds:
+            await asyncio.sleep(self.delay_seconds)
         return ProviderResult(
             status=ProviderStatus.MATCHED,
             provider_name="lrclib",
@@ -148,6 +152,7 @@ class FailingProvenanceRepository(SqliteStateRepository):
     def __init__(self, engine: Engine) -> None:
         super().__init__(engine)
         self.fail_record_provenance = True
+        self.heartbeat_calls = 0
 
     async def record_provenance(self, record: object) -> None:
         if self.fail_record_provenance:
@@ -155,6 +160,10 @@ class FailingProvenanceRepository(SqliteStateRepository):
             msg = "simulated provenance write failure"
             raise OSError(msg)
         await super().record_provenance(record)
+
+    async def heartbeat_job(self, job_key: str, lease_until: datetime) -> None:
+        self.heartbeat_calls += 1
+        await super().heartbeat_job(job_key, lease_until)
 
 
 def _build_settings(library_root: Path, state_dir: Path) -> Settings:
@@ -247,3 +256,23 @@ async def test_job_processor_preserves_manual_sidecar_when_retry_sidecar_no_long
     assert second_attempt is True
     assert sidecar_path.read_text(encoding="utf-8") == "Manual replacement"
     assert repaired is None
+
+
+@pytest.mark.asyncio
+async def test_job_processor_renews_lease_during_long_running_work(sqlite_engine: Engine, tmp_path: Path) -> None:
+    library_root = tmp_path / "music"
+    library_root.mkdir()
+    media_path = library_root / "track.flac"
+    media_path.write_bytes(b"audio")
+
+    repository = FailingProvenanceRepository(sqlite_engine)
+    repository.fail_record_provenance = False
+    provider = FakeProvider("Hello\nWorld", delay_seconds=31)
+
+    await _enqueue_job(repository, media_path, library_root)
+    processor, _ = _build_processor(repository, library_root, media_path, provider, now=datetime.now(UTC))
+
+    processed = await processor.process_next("worker-1")
+
+    assert processed is True
+    assert repository.heartbeat_calls >= 1

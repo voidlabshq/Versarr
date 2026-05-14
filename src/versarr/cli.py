@@ -14,9 +14,9 @@ from versarr.interfaces.http import build_http_app
 from versarr.observability import configure_logging
 
 app = typer.Typer(no_args_is_help=True)
-ConfigOption = Annotated[Path | None, typer.Option("--config")]
+ConfigOption = Annotated[Path | None, typer.Option(None, "--config")]
 RescanPathArgument = Annotated[Path, typer.Argument()]
-RootOption = Annotated[Path, typer.Option("--root")]
+RootOption = Annotated[Path | None, typer.Option(None, "--root")]
 ForceOption = Annotated[bool, typer.Option()]
 OverwriteOption = Annotated[bool, typer.Option()]
 ManualOverwriteOption = Annotated[bool, typer.Option()]
