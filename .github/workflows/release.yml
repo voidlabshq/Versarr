@@ -21,7 +21,7 @@ jobs:
       - run: ruff check .
       - run: mypy src
       - run: pytest -m "not interop and not container"
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v6
         with:
           context: .
