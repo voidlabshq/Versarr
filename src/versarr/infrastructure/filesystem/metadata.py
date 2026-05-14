@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 import mutagen
+from mutagen._util import MutagenError
 from mutagen.flac import FLAC
 from mutagen.id3 import ID3
 from mutagen.mp4 import MP4
@@ -31,7 +32,12 @@ class MutagenMetadataReader(MetadataReader):
             raise ValueError(msg)
         stat = media_path.stat()
         mutagen_module = cast(Any, mutagen)
-        audio = mutagen_module.File(media_path)
+        try:
+            audio = mutagen_module.File(media_path)
+        except MutagenError as error:
+            msg = f"unable to parse metadata for {media_path}"
+            raise ValueError(msg) from error
+
         if audio is None:
             msg = f"unable to parse metadata for {media_path}"
             raise ValueError(msg)

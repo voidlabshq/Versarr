@@ -18,12 +18,15 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 ENV PYTHONUNBUFFERED=1
 
-RUN useradd --create-home --uid 10001 versarr
+RUN useradd --create-home --uid 10001 versarr \
+    && mkdir -p /state /app
 
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /build/alembic.ini /app/alembic.ini
 COPY --from=builder /build/alembic /app/alembic
+
+RUN chown -R versarr:versarr /state /app /opt/venv
 
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
