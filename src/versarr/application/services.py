@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -200,6 +202,14 @@ class JobProcessor:
     settings: Settings
     remember_written_sidecar: Callable[[Path, str], None] | None = None
 
+    async def _heartbeat_loop(self, job: EnrichmentJob) -> None:
+        while True:
+            await asyncio.sleep(30)
+            await self.repository.heartbeat_job(
+                job.job_key,
+                self.clock.now() + timedelta(seconds=120),
+            )
+
     async def _process_job(self, job: EnrichmentJob, logger: object) -> ProcessingOutcome:
         del logger
         self._ensure_within_root(job.media_path, job.library_root)
@@ -361,8 +371,10 @@ class JobProcessor:
         )
         self.metrics.active_jobs.inc()
         started = perf_counter()
+        heartbeat_task: asyncio.Task[None] | None = None
         try:
             logger.info("job_started")
+            heartbeat_task = asyncio.create_task(self._heartbeat_loop(job))
             outcome = await self._process_job(job, logger)
             if outcome.category == ProcessingCategory.RETRY and outcome.retry_decision.next_attempt_at is not None:
                 self.metrics.jobs_retried_total.labels(classification=outcome.retry_decision.classification).inc()
@@ -430,6 +442,10 @@ class JobProcessor:
             self.metrics.jobs_retried_total.labels(classification=RetryClassification.FILE_TRANSIENT).inc()
             return True
         finally:
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await heartbeat_task
             self.metrics.active_jobs.dec()
             self.metrics.job_duration_seconds.observe(perf_counter() - started)
 
