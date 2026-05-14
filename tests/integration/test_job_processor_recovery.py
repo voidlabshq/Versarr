@@ -10,7 +10,16 @@ from sqlalchemy import Engine
 
 from versarr.application.services import JobProcessor
 from versarr.config import Settings
-from versarr.domain import JobPriority, LyricsPresence, ProviderResult, ProviderStatus, TrackIdentity, TrackSnapshot, TriggerKind, hash_meaningful_snapshot
+from versarr.domain import (
+    JobPriority,
+    LyricsPresence,
+    ProviderResult,
+    ProviderStatus,
+    TrackIdentity,
+    TrackSnapshot,
+    TriggerKind,
+    hash_meaningful_snapshot,
+)
 from versarr.infrastructure.filesystem import AtomicLrcWriter
 from versarr.infrastructure.persistence import SqliteStateRepository
 

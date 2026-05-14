@@ -170,6 +170,7 @@ async def test_repository_does_not_recover_job_before_lease_expiry(sqlite_engine
     assert recovered == 0
     assert requeued is None
 
+
 @pytest.mark.asyncio
 async def test_repository_does_not_double_lease_same_job(sqlite_engine: Engine) -> None:
     repository = SqliteStateRepository(sqlite_engine)
