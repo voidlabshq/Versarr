@@ -20,5 +20,6 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy src
+      - run: mkdir -p .tmp
       - run: pytest -m "not interop and not container"
 
