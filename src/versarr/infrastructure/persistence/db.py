@@ -4,7 +4,8 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import Engine, create_engine as sa_create_engine
+from sqlalchemy import Engine
+from sqlalchemy import create_engine as sa_create_engine
 
 
 def create_engine(sqlite_path: Path) -> Engine:

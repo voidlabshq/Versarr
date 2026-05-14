@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response, status
@@ -10,7 +11,7 @@ from versarr.bootstrap import VersarrRuntime
 
 def build_http_app(runtime: VersarrRuntime) -> FastAPI:
     @asynccontextmanager
-    async def lifespan(app: FastAPI):  # type: ignore[unused-argument]
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await runtime.start()
         try:
             yield
@@ -36,4 +37,3 @@ def build_http_app(runtime: VersarrRuntime) -> FastAPI:
         return Response(content=payload, media_type=CONTENT_TYPE_LATEST)
 
     return app
-

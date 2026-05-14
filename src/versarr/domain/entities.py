@@ -84,6 +84,20 @@ class SnapshotStateRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class DirectoryGapSummary:
+    library_root: Path
+    directory_path: Path
+    total_tracks: int
+    tracks_with_lyrics: int
+    tracks_missing_lyrics: int
+    pending_jobs: int
+    processing_jobs: int
+    failed_jobs: int
+    active_cooldowns: int
+    manual_diverged: int
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderResult:
     status: ProviderStatus
     provider_name: str

@@ -5,11 +5,15 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
-from versarr.application.contracts import SidecarWriteResult, SidecarWriter
+from versarr.application.contracts import SidecarWriter, SidecarWriteResult
 from versarr.domain import hash_normalized_lyrics, normalize_lyrics_text
+from versarr.observability import get_logger
 
 
 class AtomicLrcWriter(SidecarWriter):
+    def __init__(self) -> None:
+        self._logger = get_logger("sidecar_writer")
+
     async def write(self, sidecar_path: Path, normalized_text: str) -> SidecarWriteResult:
         return await asyncio.to_thread(self._write_sync, sidecar_path, normalized_text)
 
@@ -43,6 +47,13 @@ class AtomicLrcWriter(SidecarWriter):
             msg = "final sidecar verification failed"
             raise OSError(msg)
         digest = hash_normalized_lyrics(payload.decode("utf-8"))
+        self._logger.info(
+            "sidecar_write_completed",
+            sidecar_path=str(sidecar_path),
+            bytes_written=len(payload),
+            created=not existed,
+            replaced=existed,
+        )
         return SidecarWriteResult(
             sidecar_path=sidecar_path,
             normalized_hash=digest,
@@ -52,4 +63,3 @@ class AtomicLrcWriter(SidecarWriter):
 
     def _read_normalized_hash_sync(self, sidecar_path: Path) -> str:
         return hash_normalized_lyrics(sidecar_path.read_text(encoding="utf-8"))
-

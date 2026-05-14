@@ -62,4 +62,3 @@ class ControlRequestStatus(StrEnum):
 class ScanKind(StrEnum):
     STARTUP = "startup"
     RECONCILIATION = "reconciliation"
-

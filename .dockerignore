@@ -9,4 +9,6 @@ tests
 docs
 dist
 build
-
+.tmp
+.local
+versarr.toml

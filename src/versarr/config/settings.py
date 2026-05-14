@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import tomllib
 from pathlib import Path
 from typing import Any
 
-import tomllib
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -16,7 +16,7 @@ class RetryWindow(BaseModel):
     max_attempts: int
 
     @model_validator(mode="after")
-    def validate_window(self) -> "RetryWindow":
+    def validate_window(self) -> RetryWindow:
         if self.initial_seconds <= 0 or self.max_seconds <= 0:
             msg = "retry windows must be positive"
             raise ValueError(msg)
@@ -30,14 +30,8 @@ class RetryWindow(BaseModel):
 
 
 class RetrySettings(BaseModel):
-    file_unstable: RetryWindow = Field(
-        default_factory=lambda: RetryWindow(initial_seconds=5, max_seconds=600, max_attempts=8)
-    )
-    provider_transient: RetryWindow = Field(
-        default_factory=lambda: RetryWindow(
-            initial_seconds=60, max_seconds=21600, max_attempts=5
-        )
-    )
+    file_unstable: RetryWindow = Field(default_factory=lambda: RetryWindow(initial_seconds=5, max_seconds=600, max_attempts=8))
+    provider_transient: RetryWindow = Field(default_factory=lambda: RetryWindow(initial_seconds=60, max_seconds=21600, max_attempts=5))
     heartbeat_seconds: int = 30
     lease_ttl_seconds: int = 120
 
@@ -129,7 +123,7 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def validate_paths(self) -> "Settings":
+    def validate_paths(self) -> Settings:
         if self.sqlite_path.parent != self.state_dir:
             msg = "sqlite_path must live under state_dir"
             raise ValueError(msg)
@@ -139,7 +133,10 @@ class Settings(BaseSettings):
         self.state_dir.mkdir(parents=True, exist_ok=True)
 
 
-def load_settings(config_file: Path | None = None, overrides: dict[str, Any] | None = None) -> Settings:
+def load_settings(
+    config_file: Path | None = None,
+    overrides: dict[str, Any] | None = None,
+) -> Settings:
     file_path = config_file or None
     merged: dict[str, Any] = {}
     if file_path is not None:

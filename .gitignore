@@ -12,4 +12,6 @@ build/
 htmlcov/
 .idea/
 .vscode/
-
+.tmp/
+.local/
+versarr.toml

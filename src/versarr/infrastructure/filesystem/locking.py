@@ -6,6 +6,7 @@ import os
 import socket
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import IO
 
 from versarr.application.contracts import LockHandle, LockManager
 
@@ -13,7 +14,7 @@ from versarr.application.contracts import LockHandle, LockManager
 class FileLockManager(LockManager):
     def __init__(self, lock_path: Path) -> None:
         self._lock_path = lock_path
-        self._file_handle: object | None = None
+        self._file_handle: IO[str] | None = None
         self._holder_metadata = json.dumps(
             {
                 "pid": os.getpid(),
@@ -32,12 +33,13 @@ class FileLockManager(LockManager):
         self._lock_path.parent.mkdir(parents=True, exist_ok=True)
         handle = self._lock_path.open("a+", encoding="utf-8")
         try:
+            handle.seek(0)
             if os.name == "nt":
                 import msvcrt
 
                 msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
             else:
-                import fcntl
+                fcntl = __import__("fcntl")
 
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as error:
@@ -64,7 +66,7 @@ class FileLockManager(LockManager):
                 handle.seek(0)
                 msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
             else:
-                import fcntl
+                fcntl = __import__("fcntl")
 
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         finally:
@@ -75,4 +77,3 @@ class FileLockManager(LockManager):
             return self._lock_path.read_text(encoding="utf-8")
         except OSError:
             return "unknown"
-

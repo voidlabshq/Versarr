@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from sqlalchemy import Engine
 
 from versarr.domain import (
     ControlRequest,
@@ -17,8 +18,8 @@ from versarr.domain import (
 from versarr.infrastructure.persistence import SqliteStateRepository
 
 
-@pytest.mark.asyncio()
-async def test_repository_enqueues_and_leases_job(sqlite_engine) -> None:
+@pytest.mark.asyncio
+async def test_repository_enqueues_and_leases_job(sqlite_engine: Engine) -> None:
     repository = SqliteStateRepository(sqlite_engine)
     media_path = Path("/music/track.flac")
 
@@ -36,8 +37,8 @@ async def test_repository_enqueues_and_leases_job(sqlite_engine) -> None:
     assert leased.media_path == media_path
 
 
-@pytest.mark.asyncio()
-async def test_repository_records_snapshot_and_control_request(sqlite_engine) -> None:
+@pytest.mark.asyncio
+async def test_repository_records_snapshot_and_control_request(sqlite_engine: Engine) -> None:
     repository = SqliteStateRepository(sqlite_engine)
     identity = TrackIdentity(
         title="Track",
@@ -89,8 +90,8 @@ async def test_repository_records_snapshot_and_control_request(sqlite_engine) ->
     assert len(requests) == 1
 
 
-@pytest.mark.asyncio()
-async def test_repository_requeues_dirty_job_on_completion(sqlite_engine) -> None:
+@pytest.mark.asyncio
+async def test_repository_requeues_dirty_job_on_completion(sqlite_engine: Engine) -> None:
     repository = SqliteStateRepository(sqlite_engine)
     media_path = Path("/music/track.flac")
 

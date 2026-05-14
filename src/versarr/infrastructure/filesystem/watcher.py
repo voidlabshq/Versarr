@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from pathlib import Path
+from typing import Any, cast
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler, FileSystemMovedEvent
-from watchdog.observers import Observer
+from watchdog.observers import Observer as WatchdogObserver
 
 from versarr.application.contracts import FileWatcher
 
@@ -22,20 +23,21 @@ class _EventHandler(FileSystemEventHandler):
     def on_created(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             return
-        self._schedule(Path(event.src_path), "created")
+        self._schedule(Path(str(event.src_path)), "created")
 
     def on_modified(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             return
-        self._schedule(Path(event.src_path), "modified")
+        self._schedule(Path(str(event.src_path)), "modified")
 
     def on_moved(self, event: FileSystemMovedEvent) -> None:
         if event.is_directory:
             return
-        self._schedule(Path(event.dest_path), "moved")
+        self._schedule(Path(str(event.dest_path)), "moved")
 
     def _schedule(self, path: Path, kind: str) -> None:
-        asyncio.run_coroutine_threadsafe(self._callback(path, kind), self._loop)
+        coroutine = cast(Coroutine[object, object, None], self._callback(path, kind))
+        asyncio.run_coroutine_threadsafe(coroutine, self._loop)
 
 
 class WatchdogFileWatcher(FileWatcher):
@@ -47,12 +49,12 @@ class WatchdogFileWatcher(FileWatcher):
     ) -> None:
         self._roots = roots
         self._callback = callback
-        self._observer: Observer | None = None
+        self._observer: object | None = None
 
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
         handler = _EventHandler(loop, self._callback)
-        observer = Observer()
+        observer = WatchdogObserver()
         for root in self._roots:
             observer.schedule(handler, str(root), recursive=True)
         observer.start()
@@ -61,7 +63,7 @@ class WatchdogFileWatcher(FileWatcher):
     async def stop(self) -> None:
         if self._observer is None:
             return
-        observer = self._observer
+        observer = cast(Any, self._observer)
         self._observer = None
         await asyncio.to_thread(observer.stop)
         await asyncio.to_thread(observer.join)

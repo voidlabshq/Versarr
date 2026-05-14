@@ -4,12 +4,12 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Index,
     Integer,
     MetaData,
     String,
     Table,
     Text,
-    Index,
 )
 
 metadata = MetaData()
@@ -114,8 +114,15 @@ control_requests = Table(
 
 Index("ix_jobs_state_next_priority", jobs.c.state, jobs.c.next_attempt_at, jobs.c.priority)
 Index("ix_jobs_lease_until", jobs.c.lease_until)
-Index("ix_track_snapshots_root_seen", track_snapshots.c.library_root, track_snapshots.c.last_seen_at)
+Index(
+    "ix_track_snapshots_root_seen",
+    track_snapshots.c.library_root,
+    track_snapshots.c.last_seen_at,
+)
 Index("ix_provenance_manual_diverged", provenance.c.manual_diverged)
 Index("ix_cooldowns_until", cooldowns.c.until_at)
-Index("ix_control_requests_status_requested", control_requests.c.status, control_requests.c.requested_at)
-
+Index(
+    "ix_control_requests_status_requested",
+    control_requests.c.status,
+    control_requests.c.requested_at,
+)

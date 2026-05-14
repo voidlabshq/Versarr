@@ -7,9 +7,8 @@ Create Date: 2026-05-13 15:00:00
 
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision = "20260513_0001"
 down_revision = None
@@ -138,4 +137,3 @@ def downgrade() -> None:
     op.drop_index("ix_jobs_lease_until", table_name="jobs")
     op.drop_index("ix_jobs_state_next_priority", table_name="jobs")
     op.drop_table("jobs")
-

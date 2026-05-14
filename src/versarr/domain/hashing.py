@@ -24,4 +24,3 @@ def hash_meaningful_snapshot(snapshot: TrackSnapshot) -> str:
         ]
     )
     return sha256(payload.encode("utf-8")).hexdigest()
-

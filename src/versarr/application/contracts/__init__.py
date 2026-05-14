@@ -6,8 +6,8 @@ from .ports import (
     LockManager,
     LyricsProvider,
     MetadataReader,
-    SidecarWriteResult,
     SidecarWriter,
+    SidecarWriteResult,
     StabilityDetector,
     StateRepository,
 )
@@ -25,4 +25,3 @@ __all__ = [
     "StabilityDetector",
     "StateRepository",
 ]
-

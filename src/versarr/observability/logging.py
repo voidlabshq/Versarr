@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import structlog
@@ -11,7 +11,12 @@ _RUN_ID = str(uuid4())
 
 
 def configure_logging(level: str) -> None:
-    logging.basicConfig(format="%(message)s", stream=sys.stdout, level=level.upper())
+    logging.basicConfig(
+        format="%(message)s",
+        stream=sys.stdout,
+        level=level.upper(),
+        force=True,
+    )
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
@@ -27,5 +32,12 @@ def configure_logging(level: str) -> None:
 
 
 def get_logger(component: str, **fields: Any) -> structlog.stdlib.BoundLogger:
-    return structlog.get_logger("versarr").bind(service="versarr", run_id=_RUN_ID, component=component, **fields)
-
+    return cast(
+        structlog.stdlib.BoundLogger,
+        structlog.get_logger("versarr").bind(
+            service="versarr",
+            run_id=_RUN_ID,
+            component=component,
+            **fields,
+        ),
+    )

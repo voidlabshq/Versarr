@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from versarr.config import load_settings
 
 
-def test_settings_environment_overrides_toml(tmp_path: Path, monkeypatch) -> None:
+def test_settings_environment_overrides_toml(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     file_root = tmp_path / "from-file"
     env_root = tmp_path / "from-env"
     file_root.mkdir()

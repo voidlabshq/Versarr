@@ -25,7 +25,11 @@ class DebounceStabilityDetector(StabilityDetector):
         now = datetime.now(UTC)
         state = self._states.get(candidate_path)
         if state is None:
-            self._states[candidate_path] = FileStabilityState(candidate_path=candidate_path, first_seen_at=now, last_seen_at=now)
+            self._states[candidate_path] = FileStabilityState(
+                candidate_path=candidate_path,
+                first_seen_at=now,
+                last_seen_at=now,
+            )
             return
         state.last_seen_at = now
         state.successful_probes = 0

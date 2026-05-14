@@ -90,9 +90,7 @@ class MetricsFacade:
         self.watcher_roots_active = Gauge("versarr_watcher_roots_active", "Active watcher roots.")
         self.readiness_state = Gauge("versarr_readiness_state", "Readiness state.")
         self.cooldowns_active = Gauge("versarr_cooldowns_active", "Active cooldown records.")
-        self.control_requests_pending = Gauge(
-            "versarr_control_requests_pending", "Pending control requests."
-        )
+        self.control_requests_pending = Gauge("versarr_control_requests_pending", "Pending control requests.")
         self.job_duration_seconds = Histogram(
             "versarr_job_duration_seconds",
             "Job duration seconds.",
@@ -122,4 +120,3 @@ class MetricsFacade:
 
     def set_readiness(self, ready: bool) -> None:
         self.readiness_state.set(1 if ready else 0)
-

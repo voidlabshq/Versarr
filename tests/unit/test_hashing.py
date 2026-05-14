@@ -37,4 +37,3 @@ def test_meaningful_snapshot_hash_ignores_raw_file_mtime_noise() -> None:
         meaningful_state_hash="",
     )
     assert hash_meaningful_snapshot(snapshot_a) == hash_meaningful_snapshot(snapshot_b)
-

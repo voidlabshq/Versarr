@@ -1,16 +1,16 @@
 from __future__ import annotations
+# ruff: noqa: E402, I001
 
-from logging.config import fileConfig
 import sys
+from logging.config import fileConfig
 from pathlib import Path
-
-from alembic import context
-from sqlalchemy import engine_from_config, pool
 
 src_path = Path(__file__).resolve().parents[1] / "src"
 if src_path.exists():
     sys.path.insert(0, str(src_path))
 
+from alembic import context
+from sqlalchemy import engine_from_config, pool
 from versarr.infrastructure.persistence.schema import metadata
 
 config = context.config

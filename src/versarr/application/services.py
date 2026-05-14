@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from time import perf_counter
-from typing import Callable
+from typing import Any
 
 from versarr.application.contracts import (
     Clock,
@@ -22,8 +22,8 @@ from versarr.domain import (
     JobPriority,
     ProcessingCategory,
     ProcessingOutcome,
-    ProviderStatus,
     ProvenanceRecord,
+    ProviderStatus,
     RetryClassification,
     RetryDecision,
     ScanKind,
@@ -42,6 +42,7 @@ class SystemClock(Clock):
 class IngestionService:
     repository: StateRepository
     metrics: MetricsFacade
+    logger: Any = None
 
     async def ingest_candidate(
         self,
@@ -65,6 +66,18 @@ class IngestionService:
             overwrite_existing=overwrite_existing,
             allow_manual_overwrite=allow_manual_overwrite,
         )
+        if self.logger is not None:
+            self.logger.info(
+                "job_enqueued",
+                library_root=str(library_root),
+                media_path=str(media_path),
+                trigger=trigger,
+                priority=priority,
+                event_kind=event_kind,
+                force=force,
+                overwrite_existing=overwrite_existing,
+                allow_manual_overwrite=allow_manual_overwrite,
+            )
         self.metrics.jobs_enqueued_total.labels(trigger=trigger).inc()
 
 
@@ -76,7 +89,10 @@ class RecoveryService:
     stale_before_seconds: int
 
     async def recover_stale_jobs(self) -> int:
-        recovered = await self.repository.recover_stale_jobs(self.clock.now(), self.stale_before_seconds)
+        recovered = await self.repository.recover_stale_jobs(
+            self.clock.now(),
+            self.stale_before_seconds,
+        )
         if recovered:
             self.metrics.startup_recoveries_total.inc(recovered)
         return recovered
@@ -92,6 +108,13 @@ class ReconciliationService:
 
     async def scan_root(self, root: Path, scan_kind: ScanKind, trigger: TriggerKind) -> int:
         started = perf_counter()
+        logger = get_logger(
+            "reconciliation",
+            root=str(root),
+            scan_kind=scan_kind,
+            trigger=trigger,
+        )
+        logger.info("scan_root_started")
         await self.repository.record_scan_start(root, scan_kind, self.clock.now())
         try:
             candidates = await self.scanner.scan(root)
@@ -104,9 +127,17 @@ class ReconciliationService:
                     event_kind=scan_kind,
                 )
             await self.repository.record_scan_finish(root, scan_kind, self.clock.now(), "ok")
+            logger.info("scan_root_completed", candidates=len(candidates))
             return len(candidates)
         except Exception as error:
-            await self.repository.record_scan_finish(root, scan_kind, self.clock.now(), "failed", type(error).__name__)
+            await self.repository.record_scan_finish(
+                root,
+                scan_kind,
+                self.clock.now(),
+                "failed",
+                type(error).__name__,
+            )
+            logger.exception("scan_root_failed", error_class=type(error).__name__)
             raise
         finally:
             self.metrics.scan_duration_seconds.labels(kind=scan_kind).observe(perf_counter() - started)
@@ -138,11 +169,13 @@ class ControlRequestService:
                 else:
                     if request.target_root is None or request.target_path is None:
                         raise ValueError("rescan request requires target_root and target_path")
+                    trigger = TriggerKind.FORCE_RESCAN if request.force else TriggerKind.MANUAL_RESCAN
+                    priority = JobPriority.FORCE_MANUAL if request.force else JobPriority.MANUAL
                     await self.ingestion.ingest_candidate(
                         library_root=request.target_root,
                         media_path=request.target_path,
-                        trigger=TriggerKind.FORCE_RESCAN if request.force else TriggerKind.MANUAL_RESCAN,
-                        priority=JobPriority.FORCE_MANUAL if request.force else JobPriority.MANUAL,
+                        trigger=trigger,
+                        priority=priority,
                         event_kind=request.request_type,
                         force=request.force,
                         overwrite_existing=request.overwrite_existing,
@@ -201,14 +234,21 @@ class JobProcessor:
         if previous_snapshot is not None and previous_snapshot.meaningful_state_hash == snapshot.meaningful_state_hash and not job.force:
             return _outcome(ProcessingCategory.NOOP, "no_meaningful_change")
 
-        cooldown = await self.repository.get_cooldown(snapshot.identity.normalized_lookup_key, "lrclib")
+        cooldown = await self.repository.get_cooldown(
+            snapshot.identity.normalized_lookup_key,
+            "lrclib",
+        )
         now = self.clock.now()
         if cooldown is not None and cooldown > now and not job.force:
             return _outcome(ProcessingCategory.NOOP, "cooldown_active")
 
         provider_result = await self.provider.fetch(snapshot.identity)
         if provider_result.status == ProviderStatus.TRANSIENT_FAILURE:
-            retry = self._build_retry(now, job.attempt_count, RetryClassification.PROVIDER_TRANSIENT)
+            retry = self._build_retry(
+                now,
+                job.attempt_count,
+                RetryClassification.PROVIDER_TRANSIENT,
+            )
             if retry.next_attempt_at is None:
                 return _outcome(
                     ProcessingCategory.TERMINAL,
@@ -229,7 +269,11 @@ class JobProcessor:
                 provider_result.status,
                 now + timedelta(seconds=self.settings.cooldowns.not_found_seconds),
             )
-            return _outcome(ProcessingCategory.TERMINAL, "lyrics_not_found", provider_status=provider_result.status)
+            return _outcome(
+                ProcessingCategory.TERMINAL,
+                "lyrics_not_found",
+                provider_status=provider_result.status,
+            )
 
         if provider_result.status in {ProviderStatus.AMBIGUOUS, ProviderStatus.INVALID_CONTENT}:
             cooldown_seconds = (
@@ -256,9 +300,7 @@ class JobProcessor:
         write_started = perf_counter()
         write_result = await self.sidecar_writer.write(sidecar_path, normalized_lyrics)
         self.metrics.sidecar_write_seconds.observe(perf_counter() - write_started)
-        self.metrics.sidecar_writes_total.labels(
-            mode="create" if write_result.created else "replace"
-        ).inc()
+        self.metrics.sidecar_writes_total.labels(mode="create" if write_result.created else "replace").inc()
         await self.repository.record_provenance(
             ProvenanceRecord(
                 media_path=job.media_path,
@@ -271,9 +313,7 @@ class JobProcessor:
                 last_written_at=now,
                 manual_diverged=False,
                 sidecar_deleted=False,
-                conflict_marker="embedded_present"
-                if snapshot.lyrics_presence.embedded_exists
-                else None,
+                conflict_marker="embedded_present" if snapshot.lyrics_presence.embedded_exists else None,
             )
         )
         if self.remember_written_sidecar is not None:
@@ -300,11 +340,10 @@ class JobProcessor:
         self.metrics.active_jobs.inc()
         started = perf_counter()
         try:
+            logger.info("job_started")
             outcome = await self._process_job(job, logger)
             if outcome.category == ProcessingCategory.RETRY and outcome.retry_decision.next_attempt_at is not None:
-                self.metrics.jobs_retried_total.labels(
-                    classification=outcome.retry_decision.classification
-                ).inc()
+                self.metrics.jobs_retried_total.labels(classification=outcome.retry_decision.classification).inc()
                 await self.repository.retry_job(
                     job.job_key,
                     outcome.reason_code,
@@ -315,7 +354,10 @@ class JobProcessor:
                 await self.repository.fail_job(job.job_key, outcome.reason_code, "terminal")
             else:
                 await self.repository.complete_job(job.job_key, outcome.reason_code)
-            self.metrics.jobs_completed_total.labels(outcome=outcome.category, reason=outcome.reason_code).inc()
+            self.metrics.jobs_completed_total.labels(
+                outcome=outcome.category,
+                reason=outcome.reason_code,
+            ).inc()
             logger.info(
                 "job_processed",
                 outcome=outcome.category,
@@ -326,11 +368,18 @@ class JobProcessor:
             return True
         except FileNotFoundError:
             await self.repository.fail_job(job.job_key, "media_missing", "terminal")
-            self.metrics.jobs_completed_total.labels(outcome=ProcessingCategory.TERMINAL, reason="media_missing").inc()
+            self.metrics.jobs_completed_total.labels(
+                outcome=ProcessingCategory.TERMINAL,
+                reason="media_missing",
+            ).inc()
             return True
         except ValueError as error:
             logger.exception("job_processing_terminal", error_class=type(error).__name__)
-            await self.repository.fail_job(job.job_key, "invalid_media_or_path", type(error).__name__)
+            await self.repository.fail_job(
+                job.job_key,
+                "invalid_media_or_path",
+                type(error).__name__,
+            )
             self.metrics.jobs_completed_total.labels(
                 outcome=ProcessingCategory.TERMINAL,
                 reason="invalid_media_or_path",
@@ -339,29 +388,40 @@ class JobProcessor:
         except OSError as error:
             logger.exception("job_processing_failed", error_class=type(error).__name__)
             next_attempt = self.clock.now() + timedelta(seconds=self.settings.retry.file_unstable.initial_seconds)
-            await self.repository.retry_job(job.job_key, "filesystem_transient", type(error).__name__, next_attempt)
+            await self.repository.retry_job(
+                job.job_key,
+                "filesystem_transient",
+                type(error).__name__,
+                next_attempt,
+            )
             self.metrics.jobs_retried_total.labels(classification=RetryClassification.FILE_TRANSIENT).inc()
             return True
         except Exception as error:
             logger.exception("job_processing_failed", error_class=type(error).__name__)
             next_attempt = self.clock.now() + timedelta(seconds=self.settings.retry.file_unstable.initial_seconds)
-            await self.repository.retry_job(job.job_key, "unexpected_error", type(error).__name__, next_attempt)
+            await self.repository.retry_job(
+                job.job_key,
+                "unexpected_error",
+                type(error).__name__,
+                next_attempt,
+            )
             self.metrics.jobs_retried_total.labels(classification=RetryClassification.FILE_TRANSIENT).inc()
             return True
         finally:
             self.metrics.active_jobs.dec()
             self.metrics.job_duration_seconds.observe(perf_counter() - started)
 
-    def _build_retry(
-        self, now: datetime, attempt_count: int, classification: RetryClassification
-    ) -> RetryDecision:
+    def _build_retry(self, now: datetime, attempt_count: int, classification: RetryClassification) -> RetryDecision:
         if classification == RetryClassification.PROVIDER_TRANSIENT:
             window = self.settings.retry.provider_transient
         else:
             window = self.settings.retry.file_unstable
         if attempt_count >= window.max_attempts:
             return RetryDecision(RetryClassification.NONE, None, max_attempts_reached=True)
-        delay_seconds = min(window.initial_seconds * (2 ** max(attempt_count - 1, 0)), window.max_seconds)
+        delay_seconds = min(
+            window.initial_seconds * (2 ** max(attempt_count - 1, 0)),
+            window.max_seconds,
+        )
         return RetryDecision(classification, now + timedelta(seconds=delay_seconds))
 
     def _ensure_within_root(self, media_path: Path, library_root: Path) -> None:

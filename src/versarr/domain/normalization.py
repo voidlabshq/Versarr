@@ -11,9 +11,10 @@ _TRAILING_SPACE_RE = re.compile(r"[ \t]+\n")
 
 
 def normalize_lookup_text(value: str) -> str:
-    normalized = unicodedata.normalize("NFKC", value).casefold().strip()
-    normalized = _LOOKUP_WHITESPACE_RE.sub(" ", normalized)
-    return normalized
+    return _LOOKUP_WHITESPACE_RE.sub(
+        " ",
+        unicodedata.normalize("NFKC", value).casefold().strip(),
+    )
 
 
 def normalize_lyrics_text(value: str) -> str:
@@ -24,4 +25,3 @@ def normalize_lyrics_text(value: str) -> str:
     text = _TRAILING_SPACE_RE.sub("\n", text)
     text = _LYRICS_BLANK_RE.sub("\n\n", text)
     return text.strip()
-

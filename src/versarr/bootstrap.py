@@ -11,12 +11,18 @@ from versarr.application import (
     ControlRequestService,
     IngestionService,
     JobProcessor,
-    RecoveryService,
     ReconciliationService,
+    RecoveryService,
 )
 from versarr.application.services import SystemClock
 from versarr.config import Settings
-from versarr.domain import ControlRequest, ControlRequestType, JobPriority, ScanKind, TriggerKind
+from versarr.domain import (
+    ControlRequest,
+    ControlRequestType,
+    JobPriority,
+    ScanKind,
+    TriggerKind,
+)
 from versarr.infrastructure.filesystem import (
     AtomicLrcWriter,
     DebounceStabilityDetector,
@@ -60,7 +66,10 @@ class VersarrRuntime:
             user_agent=settings.provider_user_agent,
             metrics=self.metrics,
         )
-        self._watcher = WatchdogFileWatcher(roots=settings.library_roots, callback=self._handle_filesystem_event)
+        self._watcher = WatchdogFileWatcher(
+            roots=settings.library_roots,
+            callback=self._handle_filesystem_event,
+        )
         self._tasks: list[asyncio.Task[None]] = []
         self._stop_event = asyncio.Event()
         self._suppression_hashes: dict[Path, str] = {}
@@ -87,7 +96,7 @@ class VersarrRuntime:
         await self._lock_manager.acquire()
         self.status.readiness.lock_held = True
 
-        ingestion = IngestionService(self.repository, self.metrics)
+        ingestion = IngestionService(self.repository, self.metrics, self.logger)
         reconciliation = ReconciliationService(
             repository=self.repository,
             scanner=self._scanner,
@@ -125,12 +134,13 @@ class VersarrRuntime:
 
         if self.settings.scan.startup_reconciliation:
             for root in self.settings.library_roots:
-                await reconciliation.scan_root(root, scan_kind=ScanKind.STARTUP, trigger=TriggerKind.STARTUP)
+                await reconciliation.scan_root(
+                    root,
+                    scan_kind=ScanKind.STARTUP,
+                    trigger=TriggerKind.STARTUP,
+                )
 
-        self._tasks = [
-            asyncio.create_task(self._worker_loop(worker_id=f"worker-{index}"))
-            for index in range(self.settings.worker_concurrency)
-        ]
+        self._tasks = [asyncio.create_task(self._worker_loop(worker_id=f"worker-{index}")) for index in range(self.settings.worker_concurrency)]
         self._tasks.append(asyncio.create_task(self._stability_loop(ingestion)))
         self._tasks.append(asyncio.create_task(self._control_loop()))
         self._tasks.append(asyncio.create_task(self._reconciliation_loop(reconciliation)))
@@ -160,9 +170,13 @@ class VersarrRuntime:
         run_migrations(self.settings.sqlite_path)
         self._engine = create_engine(self.settings.sqlite_path)
         self._repository = SqliteStateRepository(self._engine)
+        self.logger.info(
+            "scan_once_started",
+            roots=[str(root) for root in self.settings.library_roots],
+        )
         await self._lock_manager.acquire()
         try:
-            ingestion = IngestionService(self.repository, self.metrics)
+            ingestion = IngestionService(self.repository, self.metrics, self.logger)
             reconciliation = ReconciliationService(
                 repository=self.repository,
                 scanner=self._scanner,
@@ -186,8 +200,11 @@ class VersarrRuntime:
                     scan_kind=ScanKind.RECONCILIATION,
                     trigger=TriggerKind.MANUAL_RESCAN,
                 )
+            processed_jobs = 0
             while await processor.process_next("scan-once"):
+                processed_jobs += 1
                 await asyncio.sleep(0)
+            self.logger.info("scan_once_completed", processed_jobs=processed_jobs)
         finally:
             await self._provider.aclose()
             await self._lock_manager.release()
@@ -259,8 +276,10 @@ class VersarrRuntime:
         while not self._stop_event.is_set():
             for state, priority, count in await self.repository.get_queue_depths():
                 self.metrics.queue_depth.labels(state=state, priority=priority).set(count)
-            self.metrics.control_requests_pending.set(await self.repository.count_pending_control_requests())
-            self.metrics.cooldowns_active.set(await self.repository.count_active_cooldowns(self.clock.now()))
+            pending_requests = await self.repository.count_pending_control_requests()
+            active_cooldowns = await self.repository.count_active_cooldowns(self.clock.now())
+            self.metrics.control_requests_pending.set(pending_requests)
+            self.metrics.cooldowns_active.set(active_cooldowns)
             self.metrics.set_readiness(self.status.readiness.ready)
             await asyncio.sleep(10)
 

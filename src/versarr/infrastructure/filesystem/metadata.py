@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast
 
 import mutagen
 from mutagen.flac import FLAC
@@ -17,6 +17,10 @@ from versarr.domain import LyricsPresence, TrackIdentity, TrackSnapshot, hash_me
 from .scanner import SUPPORTED_MEDIA_EXTENSIONS
 
 
+class _ID3LikeTags(Protocol):
+    def getall(self, key: str) -> list[Any]: ...
+
+
 class MutagenMetadataReader(MetadataReader):
     async def read_snapshot(self, media_path: Path, library_root: Path) -> TrackSnapshot:
         return await asyncio.to_thread(self._read_snapshot_sync, media_path, library_root)
@@ -26,7 +30,8 @@ class MutagenMetadataReader(MetadataReader):
             msg = f"unsupported media format: {media_path.suffix}"
             raise ValueError(msg)
         stat = media_path.stat()
-        audio = mutagen.File(media_path)
+        mutagen_module = cast(Any, mutagen)
+        audio = mutagen_module.File(media_path)
         if audio is None:
             msg = f"unable to parse metadata for {media_path}"
             raise ValueError(msg)
@@ -100,8 +105,17 @@ def _first_tag(tags: Any, keys: list[str]) -> str | None:
             value = tags.get(key)
             if value:
                 return _coerce_tag_value(value)
-        if hasattr(tags, "getall") and key in {"TIT2", "TPE1", "TALB", "TPE2", "TRCK", "TPOS", "TDRC", "TSRC"}:
-            frames = tags.getall(key)
+        if hasattr(tags, "getall") and key in {
+            "TIT2",
+            "TPE1",
+            "TALB",
+            "TPE2",
+            "TRCK",
+            "TPOS",
+            "TDRC",
+            "TSRC",
+        }:
+            frames = cast(_ID3LikeTags, tags).getall(key)
             if frames:
                 return _coerce_tag_value(frames[0])
     return None
@@ -115,10 +129,10 @@ def _coerce_tag_value(value: Any) -> str | None:
     if isinstance(value, tuple):
         return _coerce_tag_value(value[0]) if value else None
     if hasattr(value, "text"):
-        text = getattr(value, "text")
+        text = value.text
         return _coerce_tag_value(text)
     if hasattr(value, "value"):
-        return _coerce_tag_value(getattr(value, "value"))
+        return _coerce_tag_value(value.value)
     return str(value).strip() or None
 
 
@@ -137,6 +151,5 @@ def _detect_embedded_lyrics(audio: Any) -> bool:
         tags = getattr(audio, "tags", {}) or {}
         return bool(tags.get("LYRICS") or tags.get("lyrics") or tags.get("UNSYNCEDLYRICS"))
     if hasattr(audio, "tags") and isinstance(audio.tags, ID3):
-        return bool(audio.tags.getall("USLT"))
+        return bool(cast(_ID3LikeTags, audio.tags).getall("USLT"))
     return False
-

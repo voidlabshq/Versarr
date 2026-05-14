@@ -2,15 +2,14 @@ from .services import (
     ControlRequestService,
     IngestionService,
     JobProcessor,
-    RecoveryService,
     ReconciliationService,
+    RecoveryService,
 )
 
 __all__ = [
     "ControlRequestService",
     "IngestionService",
     "JobProcessor",
-    "RecoveryService",
     "ReconciliationService",
+    "RecoveryService",
 ]
-

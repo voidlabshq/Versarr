@@ -32,4 +32,3 @@ class FilesystemScanner(LibraryScanner):
             if path.suffix.lower() in SUPPORTED_MEDIA_EXTENSIONS:
                 candidates.append(path)
         return candidates
-

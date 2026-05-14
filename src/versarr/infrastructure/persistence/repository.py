@@ -13,6 +13,7 @@ from versarr.domain import (
     ControlRequest,
     ControlRequestStatus,
     ControlRequestType,
+    DirectoryGapSummary,
     EnrichmentJob,
     JobPriority,
     JobState,
@@ -67,9 +68,7 @@ class SqliteStateRepository(StateRepository):
         now = datetime.now(UTC)
         job_key = str(media_path)
         with self._engine.begin() as connection:
-            existing = connection.execute(
-                select(jobs).where(jobs.c.job_key == job_key)
-            ).mappings().first()
+            existing = connection.execute(select(jobs).where(jobs.c.job_key == job_key)).mappings().first()
             if existing is None:
                 connection.execute(
                     insert(jobs).values(
@@ -102,18 +101,13 @@ class SqliteStateRepository(StateRepository):
                     priority=priority,
                     dirty=dirty if existing["state"] == JobState.PROCESSING else False,
                     force=force or bool(existing["force"]),
-                    overwrite_existing=overwrite_existing or bool(existing["overwrite_existing"]),
-                    allow_manual_overwrite=allow_manual_overwrite
-                    or bool(existing["allow_manual_overwrite"]),
+                    overwrite_existing=(overwrite_existing or bool(existing["overwrite_existing"])),
+                    allow_manual_overwrite=(allow_manual_overwrite or bool(existing["allow_manual_overwrite"])),
                     last_event_kind=event_kind,
                     last_event_at=now,
-                    next_attempt_at=now if existing["state"] != JobState.PROCESSING else existing["next_attempt_at"],
-                    attempt_count=existing["attempt_count"]
-                    if existing["state"] == JobState.PROCESSING
-                    else 0,
-                    state=JobState.PENDING
-                    if existing["state"] != JobState.PROCESSING
-                    else existing["state"],
+                    next_attempt_at=(now if existing["state"] != JobState.PROCESSING else existing["next_attempt_at"]),
+                    attempt_count=existing["attempt_count"] if existing["state"] == JobState.PROCESSING else 0,
+                    state=JobState.PENDING if existing["state"] != JobState.PROCESSING else existing["state"],
                     updated_at=now,
                 )
             )
@@ -123,26 +117,30 @@ class SqliteStateRepository(StateRepository):
 
     def _lease_next_ready_job_sync(self, worker_id: str, now: datetime) -> EnrichmentJob | None:
         with self._engine.begin() as connection:
-            row = connection.execute(
-                select(jobs)
-                .where(
-                    and_(
-                        jobs.c.state == JobState.PENDING,
-                        jobs.c.next_attempt_at <= now,
+            row = (
+                connection.execute(
+                    select(jobs)
+                    .where(
+                        and_(
+                            jobs.c.state == JobState.PENDING,
+                            jobs.c.next_attempt_at <= now,
+                        )
                     )
+                    .order_by(
+                        case(
+                            (jobs.c.priority == JobPriority.FORCE_MANUAL, 0),
+                            (jobs.c.priority == JobPriority.MANUAL, 1),
+                            (jobs.c.priority == JobPriority.WATCHER, 2),
+                            else_=3,
+                        ),
+                        jobs.c.next_attempt_at.asc(),
+                        jobs.c.created_at.asc(),
+                    )
+                    .limit(1)
                 )
-                .order_by(
-                    case(
-                        (jobs.c.priority == JobPriority.FORCE_MANUAL, 0),
-                        (jobs.c.priority == JobPriority.MANUAL, 1),
-                        (jobs.c.priority == JobPriority.WATCHER, 2),
-                        else_=3,
-                    ),
-                    jobs.c.next_attempt_at.asc(),
-                    jobs.c.created_at.asc(),
-                )
-                .limit(1)
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if row is None:
                 return None
             lease_until = now + timedelta(seconds=120)
@@ -168,11 +166,7 @@ class SqliteStateRepository(StateRepository):
 
     def _heartbeat_job_sync(self, job_key: str, lease_until: datetime) -> None:
         with self._engine.begin() as connection:
-            connection.execute(
-                update(jobs)
-                .where(jobs.c.job_key == job_key)
-                .values(lease_until=lease_until, updated_at=datetime.now(UTC))
-            )
+            connection.execute(update(jobs).where(jobs.c.job_key == job_key).values(lease_until=lease_until, updated_at=datetime.now(UTC)))
 
     async def complete_job(self, job_key: str, reason_code: str) -> None:
         await asyncio.to_thread(self._complete_job_sync, job_key, reason_code)
@@ -180,9 +174,7 @@ class SqliteStateRepository(StateRepository):
     def _complete_job_sync(self, job_key: str, reason_code: str) -> None:
         now = datetime.now(UTC)
         with self._engine.begin() as connection:
-            existing = connection.execute(
-                select(jobs.c.dirty, jobs.c.attempt_count).where(jobs.c.job_key == job_key)
-            ).first()
+            existing = connection.execute(select(jobs.c.dirty, jobs.c.attempt_count).where(jobs.c.job_key == job_key)).first()
             dirty = bool(existing[0]) if existing is not None else False
             attempt_count = int(existing[1]) if existing is not None else 0
             connection.execute(
@@ -200,14 +192,16 @@ class SqliteStateRepository(StateRepository):
                 )
             )
 
-    async def retry_job(
-        self, job_key: str, reason_code: str, error_class: str, next_attempt_at: datetime
-    ) -> None:
-        await asyncio.to_thread(self._retry_job_sync, job_key, reason_code, error_class, next_attempt_at)
+    async def retry_job(self, job_key: str, reason_code: str, error_class: str, next_attempt_at: datetime) -> None:
+        await asyncio.to_thread(
+            self._retry_job_sync,
+            job_key,
+            reason_code,
+            error_class,
+            next_attempt_at,
+        )
 
-    def _retry_job_sync(
-        self, job_key: str, reason_code: str, error_class: str, next_attempt_at: datetime
-    ) -> None:
+    def _retry_job_sync(self, job_key: str, reason_code: str, error_class: str, next_attempt_at: datetime) -> None:
         now = datetime.now(UTC)
         with self._engine.begin() as connection:
             connection.execute(
@@ -249,9 +243,7 @@ class SqliteStateRepository(StateRepository):
 
     def _get_snapshot_sync(self, media_path: Path) -> SnapshotStateRecord | None:
         with self._engine.begin() as connection:
-            row = connection.execute(
-                select(track_snapshots).where(track_snapshots.c.media_path == str(media_path))
-            ).mappings().first()
+            row = connection.execute(select(track_snapshots).where(track_snapshots.c.media_path == str(media_path))).mappings().first()
         return _row_to_snapshot(row) if row is not None else None
 
     async def record_snapshot(self, snapshot: TrackSnapshot) -> None:
@@ -280,20 +272,14 @@ class SqliteStateRepository(StateRepository):
             if existing is None:
                 connection.execute(insert(track_snapshots).values(**values))
             else:
-                connection.execute(
-                    update(track_snapshots)
-                    .where(track_snapshots.c.media_path == str(snapshot.media_path))
-                    .values(**values)
-                )
+                connection.execute(update(track_snapshots).where(track_snapshots.c.media_path == str(snapshot.media_path)).values(**values))
 
     async def get_provenance(self, media_path: Path) -> ProvenanceRecord | None:
         return await asyncio.to_thread(self._get_provenance_sync, media_path)
 
     def _get_provenance_sync(self, media_path: Path) -> ProvenanceRecord | None:
         with self._engine.begin() as connection:
-            row = connection.execute(
-                select(provenance).where(provenance.c.media_path == str(media_path))
-            ).mappings().first()
+            row = connection.execute(select(provenance).where(provenance.c.media_path == str(media_path))).mappings().first()
         return _row_to_provenance(row) if row is not None else None
 
     async def record_provenance(self, record: ProvenanceRecord) -> None:
@@ -316,17 +302,11 @@ class SqliteStateRepository(StateRepository):
             "updated_at": now,
         }
         with self._engine.begin() as connection:
-            existing = connection.execute(
-                select(provenance.c.media_path).where(provenance.c.media_path == str(record.media_path))
-            ).first()
+            existing = connection.execute(select(provenance.c.media_path).where(provenance.c.media_path == str(record.media_path))).first()
             if existing is None:
                 connection.execute(insert(provenance).values(**values))
             else:
-                connection.execute(
-                    update(provenance)
-                    .where(provenance.c.media_path == str(record.media_path))
-                    .values(**values)
-                )
+                connection.execute(update(provenance).where(provenance.c.media_path == str(record.media_path)).values(**values))
 
     async def mark_manual_diverged(self, media_path: Path) -> None:
         await asyncio.to_thread(self._mark_manual_diverged_sync, media_path)
@@ -334,9 +314,7 @@ class SqliteStateRepository(StateRepository):
     def _mark_manual_diverged_sync(self, media_path: Path) -> None:
         with self._engine.begin() as connection:
             connection.execute(
-                update(provenance)
-                .where(provenance.c.media_path == str(media_path))
-                .values(manual_diverged=True, updated_at=datetime.now(UTC))
+                update(provenance).where(provenance.c.media_path == str(media_path)).values(manual_diverged=True, updated_at=datetime.now(UTC))
             )
 
     async def mark_sidecar_deleted(self, media_path: Path) -> None:
@@ -345,9 +323,7 @@ class SqliteStateRepository(StateRepository):
     def _mark_sidecar_deleted_sync(self, media_path: Path) -> None:
         with self._engine.begin() as connection:
             connection.execute(
-                update(provenance)
-                .where(provenance.c.media_path == str(media_path))
-                .values(sidecar_deleted=True, updated_at=datetime.now(UTC))
+                update(provenance).where(provenance.c.media_path == str(media_path)).values(sidecar_deleted=True, updated_at=datetime.now(UTC))
             )
 
     async def get_cooldown(self, lookup_key: str, provider_name: str) -> datetime | None:
@@ -365,14 +341,16 @@ class SqliteStateRepository(StateRepository):
             ).first()
         return None if row is None else row[0]
 
-    async def record_cooldown(
-        self, lookup_key: str, provider_name: str, outcome: str, until_at: datetime
-    ) -> None:
-        await asyncio.to_thread(self._record_cooldown_sync, lookup_key, provider_name, outcome, until_at)
+    async def record_cooldown(self, lookup_key: str, provider_name: str, outcome: str, until_at: datetime) -> None:
+        await asyncio.to_thread(
+            self._record_cooldown_sync,
+            lookup_key,
+            provider_name,
+            outcome,
+            until_at,
+        )
 
-    def _record_cooldown_sync(
-        self, lookup_key: str, provider_name: str, outcome: str, until_at: datetime
-    ) -> None:
+    def _record_cooldown_sync(self, lookup_key: str, provider_name: str, outcome: str, until_at: datetime) -> None:
         now = datetime.now(UTC)
         values = {
             "lookup_key": lookup_key,
@@ -383,15 +361,11 @@ class SqliteStateRepository(StateRepository):
             "updated_at": now,
         }
         with self._engine.begin() as connection:
-            existing = connection.execute(
-                select(cooldowns.c.lookup_key).where(cooldowns.c.lookup_key == lookup_key)
-            ).first()
+            existing = connection.execute(select(cooldowns.c.lookup_key).where(cooldowns.c.lookup_key == lookup_key)).first()
             if existing is None:
                 connection.execute(insert(cooldowns).values(**values))
             else:
-                connection.execute(
-                    update(cooldowns).where(cooldowns.c.lookup_key == lookup_key).values(**values)
-                )
+                connection.execute(update(cooldowns).where(cooldowns.c.lookup_key == lookup_key).values(**values))
 
     async def recover_stale_jobs(self, now: datetime, stale_before_seconds: int) -> int:
         return await asyncio.to_thread(self._recover_stale_jobs_sync, now, stale_before_seconds)
@@ -441,12 +415,16 @@ class SqliteStateRepository(StateRepository):
 
     def _poll_control_requests_sync(self, limit: int) -> list[tuple[int, ControlRequest]]:
         with self._engine.begin() as connection:
-            rows = connection.execute(
-                select(control_requests)
-                .where(control_requests.c.status == ControlRequestStatus.PENDING)
-                .order_by(control_requests.c.requested_at.asc())
-                .limit(limit)
-            ).mappings().all()
+            rows = (
+                connection.execute(
+                    select(control_requests)
+                    .where(control_requests.c.status == ControlRequestStatus.PENDING)
+                    .order_by(control_requests.c.requested_at.asc())
+                    .limit(limit)
+                )
+                .mappings()
+                .all()
+            )
         return [(int(row["id"]), _row_to_control_request(row)) for row in rows]
 
     async def claim_control_request(self, request_id: int, claimed_at: datetime) -> bool:
@@ -496,8 +474,21 @@ class SqliteStateRepository(StateRepository):
                 )
             )
 
-    async def record_scan_start(self, library_root: Path, scan_kind: str, started_at: datetime) -> None:
-        await asyncio.to_thread(self._record_scan_state_sync, library_root, scan_kind, started_at, None, None, None)
+    async def record_scan_start(
+        self,
+        library_root: Path,
+        scan_kind: str,
+        started_at: datetime,
+    ) -> None:
+        await asyncio.to_thread(
+            self._record_scan_state_sync,
+            library_root,
+            scan_kind,
+            started_at,
+            None,
+            None,
+            None,
+        )
 
     async def record_scan_finish(
         self,
@@ -535,9 +526,7 @@ class SqliteStateRepository(StateRepository):
     def _count_pending_control_requests_sync(self) -> int:
         with self._engine.begin() as connection:
             row = connection.execute(
-                select(func.count()).select_from(control_requests).where(
-                    control_requests.c.status == ControlRequestStatus.PENDING
-                )
+                select(func.count()).select_from(control_requests).where(control_requests.c.status == ControlRequestStatus.PENDING)
             ).scalar_one()
         return int(row)
 
@@ -546,10 +535,128 @@ class SqliteStateRepository(StateRepository):
 
     def _count_active_cooldowns_sync(self, now: datetime) -> int:
         with self._engine.begin() as connection:
-            row = connection.execute(
-                select(func.count()).select_from(cooldowns).where(cooldowns.c.until_at > now)
-            ).scalar_one()
+            row = connection.execute(select(func.count()).select_from(cooldowns).where(cooldowns.c.until_at > now)).scalar_one()
         return int(row)
+
+    async def list_directory_gap_summaries(
+        self,
+        library_root: Path | None = None,
+    ) -> list[DirectoryGapSummary]:
+        return await asyncio.to_thread(self._list_directory_gap_summaries_sync, library_root)
+
+    def _list_directory_gap_summaries_sync(
+        self,
+        library_root: Path | None,
+    ) -> list[DirectoryGapSummary]:
+        now = datetime.now(UTC)
+        with self._engine.begin() as connection:
+            snapshot_query = select(track_snapshots).where(track_snapshots.c.deleted_at.is_(None))
+            if library_root is not None:
+                snapshot_query = snapshot_query.where(track_snapshots.c.library_root == str(library_root))
+            snapshot_rows = connection.execute(snapshot_query).mappings().all()
+            if not snapshot_rows:
+                return []
+
+            media_paths = [str(row["media_path"]) for row in snapshot_rows]
+            lookup_keys = sorted({str(row["normalized_lookup_key"]) for row in snapshot_rows})
+
+            job_rows = (
+                connection.execute(
+                    select(
+                        jobs.c.media_path,
+                        jobs.c.state,
+                    ).where(jobs.c.media_path.in_(media_paths))
+                )
+                .mappings()
+                .all()
+            )
+            provenance_rows = (
+                connection.execute(
+                    select(
+                        provenance.c.media_path,
+                        provenance.c.manual_diverged,
+                    ).where(provenance.c.media_path.in_(media_paths))
+                )
+                .mappings()
+                .all()
+            )
+            cooldown_rows = (
+                connection.execute(
+                    select(cooldowns.c.lookup_key).where(
+                        cooldowns.c.lookup_key.in_(lookup_keys),
+                        cooldowns.c.until_at > now,
+                    )
+                )
+                .mappings()
+                .all()
+            )
+
+        jobs_by_media = {str(row["media_path"]): str(row["state"]) for row in job_rows}
+        manual_diverged_by_media = {str(row["media_path"]): bool(row["manual_diverged"]) for row in provenance_rows}
+        active_cooldowns = {str(row["lookup_key"]) for row in cooldown_rows}
+
+        summaries: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in snapshot_rows:
+            row_library_root = Path(str(row["library_root"]))
+            media_path = Path(str(row["media_path"]))
+            directory_path = media_path.parent
+            key = (str(row_library_root), str(directory_path))
+            summary = summaries.setdefault(
+                key,
+                {
+                    "library_root": row_library_root,
+                    "directory_path": directory_path,
+                    "total_tracks": 0,
+                    "tracks_with_lyrics": 0,
+                    "tracks_missing_lyrics": 0,
+                    "pending_jobs": 0,
+                    "processing_jobs": 0,
+                    "failed_jobs": 0,
+                    "active_cooldowns": 0,
+                    "manual_diverged": 0,
+                },
+            )
+            summary["total_tracks"] += 1
+
+            has_lyrics = bool(row["sidecar_exists"]) or bool(row["embedded_exists"])
+            if has_lyrics:
+                summary["tracks_with_lyrics"] += 1
+            else:
+                summary["tracks_missing_lyrics"] += 1
+                job_state = jobs_by_media.get(str(media_path))
+                if job_state == JobState.PENDING:
+                    summary["pending_jobs"] += 1
+                elif job_state == JobState.PROCESSING:
+                    summary["processing_jobs"] += 1
+                elif job_state == JobState.FAILED:
+                    summary["failed_jobs"] += 1
+                if str(row["normalized_lookup_key"]) in active_cooldowns:
+                    summary["active_cooldowns"] += 1
+
+            if manual_diverged_by_media.get(str(media_path), False):
+                summary["manual_diverged"] += 1
+
+        return [
+            DirectoryGapSummary(
+                library_root=summary["library_root"],
+                directory_path=summary["directory_path"],
+                total_tracks=summary["total_tracks"],
+                tracks_with_lyrics=summary["tracks_with_lyrics"],
+                tracks_missing_lyrics=summary["tracks_missing_lyrics"],
+                pending_jobs=summary["pending_jobs"],
+                processing_jobs=summary["processing_jobs"],
+                failed_jobs=summary["failed_jobs"],
+                active_cooldowns=summary["active_cooldowns"],
+                manual_diverged=summary["manual_diverged"],
+            )
+            for summary in sorted(
+                summaries.values(),
+                key=lambda item: (
+                    str(item["library_root"]),
+                    str(item["directory_path"]),
+                ),
+            )
+        ]
 
     def _record_scan_state_sync(
         self,
@@ -588,17 +695,11 @@ class SqliteStateRepository(StateRepository):
                             scan_state.c.scan_kind == scan_kind,
                         )
                     )
-                    .values(
-                        **{
-                            key: value
-                            for key, value in values.items()
-                            if value is not None or key in {"last_status", "last_error_code"}
-                        }
-                    )
+                    .values(**{key: value for key, value in values.items() if value is not None or key in {"last_status", "last_error_code"}})
                 )
 
 
-def _row_to_job(row: RowMapping[str, Any] | dict[str, Any]) -> EnrichmentJob:
+def _row_to_job(row: RowMapping | dict[str, Any]) -> EnrichmentJob:
     return EnrichmentJob(
         job_key=str(row["job_key"]),
         library_root=Path(str(row["library_root"])),
@@ -617,7 +718,7 @@ def _row_to_job(row: RowMapping[str, Any] | dict[str, Any]) -> EnrichmentJob:
     )
 
 
-def _row_to_snapshot(row: RowMapping[str, Any]) -> SnapshotStateRecord:
+def _row_to_snapshot(row: RowMapping) -> SnapshotStateRecord:
     return SnapshotStateRecord(
         media_path=Path(str(row["media_path"])),
         library_root=Path(str(row["library_root"])),
@@ -634,7 +735,7 @@ def _row_to_snapshot(row: RowMapping[str, Any]) -> SnapshotStateRecord:
     )
 
 
-def _row_to_provenance(row: RowMapping[str, Any]) -> ProvenanceRecord:
+def _row_to_provenance(row: RowMapping) -> ProvenanceRecord:
     return ProvenanceRecord(
         media_path=Path(str(row["media_path"])),
         sidecar_path=Path(str(row["sidecar_path"])),
@@ -650,7 +751,7 @@ def _row_to_provenance(row: RowMapping[str, Any]) -> ProvenanceRecord:
     )
 
 
-def _row_to_control_request(row: RowMapping[str, Any]) -> ControlRequest:
+def _row_to_control_request(row: RowMapping) -> ControlRequest:
     return ControlRequest(
         request_type=ControlRequestType(str(row["request_type"])),
         target_root=Path(str(row["target_root"])) if row["target_root"] else None,
