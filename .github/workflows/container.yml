@@ -3,7 +3,9 @@ name: container
 on:
   pull_request:
   push:
-    branches: ["main"]
+    branches:
+      - main
+      - release/v0.1
 
 jobs:
   build:
@@ -11,5 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - run: docker build -f docker/Dockerfile -t versarr:test .
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          platforms: linux/amd64,linux/arm64
 
