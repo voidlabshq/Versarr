@@ -36,8 +36,10 @@ class FileLockManager(LockManager):
             handle.seek(0)
             if os.name == "nt":
                 import msvcrt
+                from typing import Any, cast
 
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                msvcrt_module = cast(Any, msvcrt)
+                msvcrt_module.locking(handle.fileno(), msvcrt_module.LK_NBLCK, 1)
             else:
                 fcntl = __import__("fcntl")
 
@@ -62,9 +64,11 @@ class FileLockManager(LockManager):
         try:
             if os.name == "nt":
                 import msvcrt
+                from typing import Any, cast
 
+                msvcrt_module = cast(Any, msvcrt)
                 handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                msvcrt_module.locking(handle.fileno(), msvcrt_module.LK_UNLCK, 1)
             else:
                 fcntl = __import__("fcntl")
 
