@@ -12,3 +12,4 @@ build
 .tmp
 .local
 versarr.toml
+docker-smoke-music/
