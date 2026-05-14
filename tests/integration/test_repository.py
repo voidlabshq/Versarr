@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -117,3 +117,54 @@ async def test_repository_requeues_dirty_job_on_completion(sqlite_engine: Engine
     follow_up = await repository.lease_next_ready_job("worker-2", datetime.now(UTC))
     assert follow_up is not None
     assert follow_up.attempt_count == 1
+
+
+@pytest.mark.asyncio
+async def test_repository_recovers_job_immediately_after_lease_expiry(sqlite_engine: Engine) -> None:
+    repository = SqliteStateRepository(sqlite_engine)
+    media_path = Path("/music/expired.flac")
+
+    await repository.enqueue_path(
+        library_root=Path("/music"),
+        media_path=media_path,
+        trigger=TriggerKind.WATCHER,
+        priority="watcher",
+        event_kind="created",
+    )
+    leased_at = datetime.now(UTC)
+    leased = await repository.lease_next_ready_job("worker-1", leased_at)
+
+    assert leased is not None
+    assert leased.lease_until is not None
+
+    recovered = await repository.recover_stale_jobs(leased.lease_until + timedelta(seconds=1), stale_before_seconds=0)
+    requeued = await repository.lease_next_ready_job("worker-2", leased.lease_until + timedelta(seconds=1))
+
+    assert recovered == 1
+    assert requeued is not None
+    assert requeued.media_path == media_path
+
+
+@pytest.mark.asyncio
+async def test_repository_does_not_recover_job_before_lease_expiry(sqlite_engine: Engine) -> None:
+    repository = SqliteStateRepository(sqlite_engine)
+    media_path = Path("/music/unexpired.flac")
+
+    await repository.enqueue_path(
+        library_root=Path("/music"),
+        media_path=media_path,
+        trigger=TriggerKind.WATCHER,
+        priority="watcher",
+        event_kind="created",
+    )
+    leased_at = datetime.now(UTC)
+    leased = await repository.lease_next_ready_job("worker-1", leased_at)
+
+    assert leased is not None
+    assert leased.lease_until is not None
+
+    recovered = await repository.recover_stale_jobs(leased.lease_until - timedelta(seconds=1), stale_before_seconds=0)
+    requeued = await repository.lease_next_ready_job("worker-2", leased.lease_until - timedelta(seconds=1))
+
+    assert recovered == 0
+    assert requeued is None
