@@ -79,8 +79,8 @@ Architectural constraints:
 
 See:
 
-- `docs/architecture.md`
-- `docs/operations.md`
+- [Architecture constraints](docs/architecture.md)
+- [Operations guide](docs/operations.md)
 
 ---
 
@@ -148,7 +148,7 @@ Expected response:
 
 Full deployment guidance:
 
-`docs/deployment.md`
+[Deployment guide](docs/deployment.md)
 
 ---
 
@@ -165,7 +165,7 @@ Recommended deployment uses environment variables.
 
 Configuration reference:
 
-`docs/configuration.md`
+[Configuration reference](docs/configuration.md)
 
 ---
 
@@ -181,7 +181,7 @@ Versarr exposes infrastructure-facing observability endpoints, not public applic
 
 Operational guidance:
 
-`docs/operations.md`
+[Operations guide](docs/operations.md)
 
 ---
 
@@ -227,7 +227,7 @@ Expected contribution principles:
 Engineering governance:
 
 - `AGENTS.md`
-- `docs/engineering-playbook.md`
+- [Engineering playbook](docs/engineering-playbook.md)
 
 ---
 
@@ -251,4 +251,4 @@ Licensed under the Apache License 2.0.
 
 See:
 
-`LICENSE`
+[LICENSE](LICENSE)

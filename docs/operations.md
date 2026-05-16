@@ -370,12 +370,12 @@ versarr request-full-scan --root /music
 
 Deployment guidance:
 
-`docs/deployment.md`
+[Deployment guide](deployment.md)
 
 Configuration reference:
 
-`docs/configuration.md`
+[Configuration reference](configuration.md)
 
 Architecture constraints:
 
-`docs/architecture.md`
+[Architecture constraints](architecture.md)

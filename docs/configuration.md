@@ -275,12 +275,12 @@ Recommended after:
 
 Deployment guidance:
 
-`docs/deployment.md`
+[Deployment guide](deployment.md)
 
 Operational guidance:
 
-`docs/operations.md`
+[Operations guide](operations.md)
 
 Architecture constraints:
 
-`docs/architecture.md`
+[Architecture constraints](architecture.md)

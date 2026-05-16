@@ -287,12 +287,12 @@ Potential causes:
 
 Configuration reference:
 
-`docs/configuration.md`
+[Configuration reference](configuration.md)
 
 Operational guidance:
 
-`docs/operations.md`
+[Operations guide](operations.md)
 
 Architecture constraints:
 
-`docs/architecture.md`
+[Architecture constraints](architecture.md)
