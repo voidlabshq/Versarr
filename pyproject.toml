@@ -12,6 +12,29 @@ license = { text = "Apache-2.0" }
 authors = [
   { name = "Versarr Contributors" }
 ]
+
+keywords = [
+  "lyrics",
+  "music",
+  "self-hosted",
+  "media-server",
+  "navidrome",
+  "subsonic",
+  "fastapi"
+]
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: System Administrators",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Multimedia :: Sound/Audio",
+  "Topic :: System :: Systems Administration"
+]
+
 dependencies = [
   "alembic>=1.16.0,<2.0.0",
   "fastapi>=0.115.0,<1.0.0",
@@ -40,6 +63,13 @@ dev = [
 
 [project.scripts]
 versarr = "versarr.cli:app"
+
+[project.urls]
+
+Homepage = "https://github.com/voidlabshq/Versarr"
+Repository = "https://github.com/voidlabshq/Versarr"
+Documentation = "https://github.com/voidlabshq/Versarr/tree/main/docs"
+Issues = "https://github.com/voidlabshq/Versarr/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/versarr"]
