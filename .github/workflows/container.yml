@@ -6,9 +6,6 @@ on:
     branches:
       - main
       - release/v0.1
-    branches:
-      - main
-      - release/v0.1
 
 jobs:
   build:
