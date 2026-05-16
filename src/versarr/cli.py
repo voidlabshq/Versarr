@@ -54,6 +54,8 @@ AllOption = Annotated[
 @app.command()
 def serve(config: ConfigOption = None) -> None:
     settings = load_settings(config)
+    configure_logging(settings.log_level)
+    settings.ensure_directories()
     runtime = create_runtime(settings)
     http_app = build_http_app(runtime)
     uvicorn.run(http_app, host=settings.http_bind_host, port=settings.http_bind_port)
@@ -62,6 +64,8 @@ def serve(config: ConfigOption = None) -> None:
 @app.command()
 def scan(config: ConfigOption = None) -> None:
     settings = load_settings(config)
+    configure_logging(settings.log_level)
+    settings.ensure_directories()
     runtime = create_runtime(settings)
     asyncio.run(runtime.run_scan_once())
 
@@ -76,6 +80,8 @@ def request_rescan(
     config: ConfigOption = None,
 ) -> None:
     settings = load_settings(config)
+    configure_logging(settings.log_level)
+    settings.ensure_directories()
     runtime = create_runtime(settings)
     asyncio.run(
         runtime.enqueue_control_request(
@@ -98,6 +104,8 @@ def request_full_scan(
     config: ConfigOption = None,
 ) -> None:
     settings = load_settings(config)
+    configure_logging(settings.log_level)
+    settings.ensure_directories()
     runtime = create_runtime(settings)
     asyncio.run(
         runtime.enqueue_control_request(
@@ -113,12 +121,15 @@ def request_full_scan(
 @app.command("config-check")
 def config_check(config: ConfigOption = None) -> None:
     settings = load_settings(config)
+    configure_logging(settings.log_level)
+    settings.ensure_directories()
     typer.echo(f"Configuration valid for {len(settings.library_roots)} library root(s).")
 
 
 @app.command("db-upgrade")
 def db_upgrade(config: ConfigOption = None) -> None:
     settings = load_settings(config)
+    configure_logging(settings.log_level)
     settings.ensure_directories()
     from versarr.infrastructure.persistence import run_migrations
 
