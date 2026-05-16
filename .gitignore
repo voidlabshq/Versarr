@@ -17,3 +17,4 @@ htmlcov/
 versarr.toml
 versarr.docker.toml
 docker-smoke-music/
+*.env
