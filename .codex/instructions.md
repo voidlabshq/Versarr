@@ -1,150 +1,104 @@
-# Codex Instructions
+# Codex Repository Instructions
 
-Repository-specific execution guidance for Codex and similar engineering agents.
+Authoritative global execution contract for engineering agents working on Versarr.
 
-This file supplements AGENTS.md.
-
----
-
-## Project context
+## Project
 
 Repository:
-Versarr
+
+voidlabshq/Versarr
 
 Summary:
-Self-hosted Python lyrics enrichment daemon for music libraries.
 
-Current architecture includes:
+Self-hosted Python lyrics enrichment daemon.
 
+Primary stack:
+
+- Python
 - FastAPI
-- watchdog filesystem monitoring
-- SQLite persistent state
-- Alembic migrations
-- async workers
-- sidecar-first `.lrc` lyrics writing
-- Docker deployment
-- GitHub Actions CI/CD
-- GHCR container publishing
+- SQLite
+- Alembic
+- watchdog
+- Docker
+- GitHub Actions
+- GHCR
 
 ---
 
 ## Architectural invariants
 
-These are hard constraints unless explicitly overridden.
+Hard constraints unless explicitly overridden:
 
 - `.lrc` sidecars are authoritative
-- embedded lyrics writing is out of MVP scope
-- SQLite stores process/process-derived state only
-- architecture stability is preferred over novelty
+- embedded lyrics writing is out of current scope
+- SQLite stores process-derived state only
+- prefer architectural stability over speculative redesign
 
 Do not redesign architecture casually.
 
 ---
 
-## Working model
+## Skill routing
 
-Meaningful repository work should preferably be issue-driven.
+Load relevant skills by task type.
 
-If no issue exists but the task is clearly scoped:
+Issue triage / ownership / project tracking:
 
-proceed while preserving scope discipline.
+`.codex/skills/github-issue-lifecycle.md`
+
+Implementation work:
+
+`.codex/skills/implementation-workflow.md`
+
+Pull request publication / merge workflow:
+
+`.codex/skills/pull-request-workflow.md`
+
+CI failure remediation:
+
+`.codex/skills/ci-remediation.md`
+
+GitHub Actions workflow authoring:
+
+`.codex/skills/ci-workflow-changes.md`
+
+If multiple skills are relevant:
+
+load all relevant skills while preserving strict scope discipline.
+
+---
+
+## Universal execution rules
+
+Prefer issue-driven work.
 
 If an issue exists:
 
 inspect it before implementation.
 
-Review:
+Do not implement from issue title alone.
 
-- description
-- acceptance criteria
-- linked context
-- referenced constraints
+One logical concern per execution batch.
 
----
+Never widen scope implicitly.
 
-## Branch discipline
+Prefer minimal deterministic changes.
 
-Prefer established repository branch conventions.
+Avoid speculative refactors.
 
-Suggested defaults:
+Avoid opportunistic cleanup.
 
-- fix/*
-- docs/*
-- ci/*
-- security/*
-- feature/*
+Avoid dependency churn unless explicitly required.
 
-Do not work directly on main unless explicitly instructed.
-
-Each branch should represent one logical concern.
+Do not silently change runtime behavior unless scope requires it.
 
 ---
 
-## Pull request discipline
+## Validation rules
 
-PRs must remain narrowly scoped.
+Validation must be proportional to risk.
 
-Prefer squash merge for focused isolated work.
-
-Issue references:
-
-Auto-close only when fully resolved:
-
-- Closes #X
-- Fixes #X
-- Resolves #X
-
-Non-closing references:
-
-- Refs #X
-- Related to #X
-- Partially addresses #X
-
-Never auto-close unresolved issues.
-
----
-
-## Implementation workflow
-
-Before implementation:
-
-1. inspect relevant files
-2. inspect neighboring tests
-3. inspect repository conventions
-4. identify minimal change surface
-5. identify validation strategy
-6. call out notable risks
-
-Then implement.
-
----
-
-## Debugging workflow
-
-Use evidence-driven debugging.
-
-Required approach:
-
-1. reproduce
-2. inspect implementation
-3. inspect logs/output
-4. identify likely root cause
-5. propose minimal fix
-6. validate
-
-Do not guess blindly.
-
-If confidence is low:
-
-state uncertainty explicitly.
-
----
-
-## Testing expectations
-
-Validation should be proportional.
-
-Default project validation when applicable:
+Default validation when applicable:
 
 ```bash
 ruff check .
@@ -153,94 +107,41 @@ mypy src
 pytest -m "not interop and not container"
 ```
 
-Examples:
+Do not over-validate trivial changes.
 
-docs-only:
-minimal validation
-
-focused bugfix:
-targeted regression tests
-
-runtime logic:
-broader validation
-
-workflow changes:
-CI/workflow validation
-
-persistence changes:
-migration compatibility validation
-
-release changes:
-release workflow validation
-
-Do not over-test trivial changes.
-
-Do not under-test risky changes.
-
----
-
-## Workflow / CI discipline
-
-Changes under:
-
-`.github/workflows/*`
-
-are high-risk.
-
-Python lint/tests do NOT validate workflow correctness.
-
-When modifying workflows:
-
-- inspect YAML carefully
-- preserve explicit permissions
-- preserve least privilege
-- avoid merge artifact corruption
-- validate assumptions
-
-Prefer immutable action pinning where practical.
-
----
-
-## Release discipline
-
-Do not alter casually:
-
-- versioning strategy
-- tag semantics
-- publishing workflow
-- GHCR assumptions
-- release workflow behavior
-
-Release changes require high caution.
+Do not under-validate risky changes.
 
 ---
 
 ## Command discipline
 
-Do not assume tooling exists without verification.
+Do not invent repository tooling.
 
-Do not invent:
-
-- scripts
-- make targets
-- automation helpers
-
-If proposing new tooling:
-
-state clearly that it is a proposal.
+Do not assume undocumented helper scripts exist.
 
 Commands should be directly executable.
 
 ---
 
-## Communication style
+## Git discipline
 
-Be concise, technical, explicit, and evidence-oriented.
+Do not work directly on `main` unless explicitly instructed.
 
-State assumptions.
+Do not merge failing CI.
 
-Call out uncertainty.
+Prefer squash merge.
 
-If multiple options exist:
+---
 
-recommend one clearly with rationale.
+## Communication contract
+
+Be:
+
+- concise
+- technical
+- explicit
+- evidence-driven
+
+State uncertainty clearly.
+
+Recommend one preferred approach when multiple valid options exist.
