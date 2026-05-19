@@ -1,8 +1,11 @@
 # Agent Instructions
 
-Repository-specific agent instructions live under:
+Authoritative repository agent instructions:
 
 - .codex/instructions.md
-- .codex/skills/
 
-Use those as authoritative operational guidance.
+Archived historical agent workflow materials:
+
+- .meta/archive/codex-skills/
+
+Only the active instruction surface should guide autonomous execution.
