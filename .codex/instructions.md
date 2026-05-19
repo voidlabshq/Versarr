@@ -117,6 +117,8 @@ Do not under-validate risky changes.
 
 Do not invent repository tooling.
 
+Repository operations may use supported integrations or shell tooling, provided repository conventions are preserved.
+
 Do not assume undocumented helper scripts exist.
 
 Commands should be directly executable.
