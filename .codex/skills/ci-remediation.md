@@ -6,7 +6,7 @@ Use this skill when CI checks fail after push or pull request publication.
 
 ## 1. Inspect workflow state
 
-List runs:
+Inspect workflow runs using GitHub integration or gh CLI.
 
 ```powershell
 gh run list `
@@ -25,7 +25,7 @@ Do not patch before identifying the actual failing check.
 
 ## 2. Inspect logs
 
-Retrieve logs:
+Inspect workflow logs using GitHub integration or gh CLI.
 
 ```powershell
 gh run view RUN_ID `
