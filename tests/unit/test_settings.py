@@ -22,14 +22,19 @@ library_roots = ["{file_root.as_posix()}"]
 provider_timeout_seconds = 10
 
 [scan]
+reconciliation_interval_seconds = 1200
 stability_quiet_period_seconds = 15
 """.strip(),
         encoding="utf-8",
     )
     monkeypatch.setenv("VERSARR_LIBRARY_ROOTS", f'["{env_root.as_posix()}"]')
     monkeypatch.setenv("VERSARR_PROVIDER_TIMEOUT_SECONDS", "30")
+    monkeypatch.setenv("VERSARR_SCAN__STARTUP_RECONCILIATION", "false")
 
     settings = load_settings(config_path)
 
     assert settings.library_roots == (env_root,)
     assert settings.provider_timeout_seconds == 30
+    assert settings.scan.startup_reconciliation is False
+    assert settings.scan.reconciliation_interval_seconds == 1200
+    assert settings.scan.stability_quiet_period_seconds == 15

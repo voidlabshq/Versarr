@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import json
-import os
-import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
 
 
 class RetryWindow(BaseModel):
@@ -63,6 +60,8 @@ class PolicySettings(BaseModel):
 
 
 class Settings(BaseSettings):
+    _toml_file: ClassVar[Path | None] = None
+
     model_config = SettingsConfigDict(
         env_prefix="VERSARR_",
         env_nested_delimiter="__",
@@ -84,6 +83,22 @@ class Settings(BaseSettings):
     retry: RetrySettings = Field(default_factory=RetrySettings)
     cooldowns: CooldownSettings = Field(default_factory=CooldownSettings)
     policy: PolicySettings = Field(default_factory=PolicySettings)
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            env_settings,
+            TomlConfigSettingsSource(settings_cls, toml_file=cls._toml_file),
+            file_secret_settings,
+        )
 
     @field_validator("library_roots")
     @classmethod
@@ -138,43 +153,16 @@ def load_settings(
     overrides: dict[str, Any] | None = None,
 ) -> Settings:
     file_path = config_file or None
-    merged: dict[str, Any] = {}
+    init_values: dict[str, Any] = {}
+    settings_cls = Settings
     if file_path is not None:
-        with file_path.open("rb") as handle:
-            merged = tomllib.load(handle)
-        merged["config_file"] = file_path
-    merged = _deep_merge(merged, _load_environment_overrides())
+        init_values["config_file"] = file_path
+
+        class ConfiguredSettings(Settings):
+            _toml_file: ClassVar[Path | None] = file_path
+
+        settings_cls = ConfiguredSettings
+
     if overrides:
-        merged = _deep_merge(merged, overrides)
-    return Settings(**merged)
-
-
-def _load_environment_overrides() -> dict[str, Any]:
-    overrides: dict[str, Any] = {}
-    prefix = "VERSARR_"
-    for key, raw_value in os.environ.items():
-        if not key.startswith(prefix):
-            continue
-        segments = key[len(prefix) :].lower().split("__")
-        cursor = overrides
-        for segment in segments[:-1]:
-            cursor = cursor.setdefault(segment, {})
-        cursor[segments[-1]] = _parse_env_value(raw_value)
-    return overrides
-
-
-def _parse_env_value(raw_value: str) -> Any:
-    try:
-        return json.loads(raw_value)
-    except json.JSONDecodeError:
-        return raw_value
-
-
-def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    merged = dict(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = _deep_merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
+        init_values.update(overrides)
+    return settings_cls(**init_values)

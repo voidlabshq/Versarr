@@ -1,149 +1,81 @@
 # Codex Repository Instructions
 
-Authoritative global execution contract for engineering agents working on Versarr.
+## Scope
 
-## Project
+Operate autonomously on this repository using available GitHub integration and local workspace tooling.
 
-Repository:
+Prefer direct action over requesting manual intervention unless blocked by permissions, missing credentials, or ambiguous requirements.
 
-voidlabshq/Versarr
+## Workflow
 
-Summary:
+Follow this execution model:
 
-Self-hosted Python lyrics enrichment daemon.
+1. Inspect open GitHub issues.
+2. Select one tightly scoped issue.
+3. Work only within the issue scope.
+4. Create an isolated branch (never work on `main`).
+5. Implement the minimal correct fix.
+6. Validate locally.
+7. Create or update a pull request.
+8. Inspect CI results.
+9. Remediate failures until green.
+10. Merge only after validation succeeds.
+11. Clean up merged branches.
 
-Primary stack:
+Do not batch unrelated issues in a single implementation unless explicitly requested.
 
-- Python
-- FastAPI
-- SQLite
-- Alembic
-- watchdog
-- Docker
-- GitHub Actions
-- GHCR
+## Validation
 
----
+Use repository-local tooling:
 
-## Architectural invariants
-
-Hard constraints unless explicitly overridden:
-
-- `.lrc` sidecars are authoritative
-- embedded lyrics writing is out of current scope
-- SQLite stores process-derived state only
-- prefer architectural stability over speculative redesign
-
-Do not redesign architecture casually.
-
----
-
-## Skill routing
-
-Load relevant skills by task type.
-
-Issue triage / ownership / project tracking:
-
-`.codex/skills/github-issue-lifecycle.md`
-
-Implementation work:
-
-`.codex/skills/implementation-workflow.md`
-
-Pull request publication / merge workflow:
-
-`.codex/skills/pull-request-workflow.md`
-
-CI failure remediation:
-
-`.codex/skills/ci-remediation.md`
-
-GitHub Actions workflow authoring:
-
-`.codex/skills/ci-workflow-changes.md`
-
-If multiple skills are relevant:
-
-load all relevant skills while preserving strict scope discipline.
-
----
-
-## Universal execution rules
-
-Prefer issue-driven work.
-
-If an issue exists:
-
-inspect it before implementation.
-
-Do not implement from issue title alone.
-
-One logical concern per execution batch.
-
-Never widen scope implicitly.
-
-Prefer minimal deterministic changes.
-
-Avoid speculative refactors.
-
-Avoid opportunistic cleanup.
-
-Avoid dependency churn unless explicitly required.
-
-Do not silently change runtime behavior unless scope requires it.
-
----
-
-## Validation rules
-
-Validation must be proportional to risk.
-
-Default validation when applicable:
-
-```bash
-ruff check .
-ruff format --check .
-mypy src
-pytest -m "not interop and not container"
+```powershell
+.\.venv\Scripts\ruff.exe check .
+.\.venv\Scripts\ruff.exe format --check .
+.\.venv\Scripts\mypy.exe src
+.\.venv\Scripts\pytest.exe -m "not interop and not container"
 ```
 
-Do not over-validate trivial changes.
+When changing CI workflows, security workflows, packaging, release automation, Docker behavior, dependency management, or validation logic, choose the minimal validation set appropriate to the scope.
 
-Do not under-validate risky changes.
+## Pull Request Policy
 
----
+Pull requests must be:
 
-## Command discipline
-
-Do not invent repository tooling.
-
-Repository operations may use supported integrations or shell tooling, provided repository conventions are preserved.
-
-Do not assume undocumented helper scripts exist.
-
-Commands should be directly executable.
-
----
-
-## Git discipline
-
-Do not work directly on `main` unless explicitly instructed.
-
-Do not merge failing CI.
+- narrowly scoped
+- technically coherent
+- minimal in diff size
+- linked to the relevant issue when applicable
 
 Prefer squash merge.
 
----
+Do not merge failing CI.
 
-## Communication contract
+## Engineering Constraints
 
-Be:
+Preserve existing architecture unless the issue explicitly requires structural change.
 
-- concise
-- technical
-- explicit
-- evidence-driven
+Do not perform speculative refactors.
 
-State uncertainty clearly.
+Do not introduce unrelated cleanup.
 
-Recommend one preferred approach when multiple valid options exist.
+Do not modify secrets, credentials, release artifacts, or repository governance unless explicitly in scope.
+
+## GitHub Actions
+
+When CI fails:
+
+1. inspect logs
+2. identify root cause
+3. apply the minimal corrective change
+4. revalidate
+5. re-run until green
+
+Do not disable failing checks to achieve a passing result.
+
+## Communication
+
+Be concise.
+
+Act first, explain briefly.
+
+Avoid unnecessary planning output unless the task is ambiguous or explicitly requests a plan.
