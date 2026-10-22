@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,8 @@ from versarr.domain import (
 )
 
 from .schema import control_requests, cooldowns, jobs, provenance, scan_state, track_snapshots
+
+_SQLITE_IN_CHUNK = 500
 
 
 class SqliteStateRepository(StateRepository):
@@ -551,6 +554,37 @@ class SqliteStateRepository(StateRepository):
         with self._engine.begin() as connection:
             row = connection.execute(select(func.count()).select_from(cooldowns).where(cooldowns.c.until_at > now)).scalar_one()
         return int(row)
+
+    async def mark_missing_snapshots_deleted(
+        self,
+        library_root: Path,
+        present_paths: Collection[Path],
+        deleted_at: datetime,
+    ) -> int:
+        return await asyncio.to_thread(self._mark_missing_snapshots_deleted_sync, library_root, present_paths, deleted_at)
+
+    def _mark_missing_snapshots_deleted_sync(
+        self,
+        library_root: Path,
+        present_paths: Collection[Path],
+        deleted_at: datetime,
+    ) -> int:
+        present = {str(path) for path in present_paths}
+        with self._engine.begin() as connection:
+            tracked = connection.execute(
+                select(track_snapshots.c.media_path).where(
+                    track_snapshots.c.library_root == str(library_root),
+                    track_snapshots.c.deleted_at.is_(None),
+                )
+            ).scalars()
+            missing = [media_path for media_path in tracked if media_path not in present]
+            for start in range(0, len(missing), _SQLITE_IN_CHUNK):
+                connection.execute(
+                    update(track_snapshots)
+                    .where(track_snapshots.c.media_path.in_(missing[start : start + _SQLITE_IN_CHUNK]))
+                    .values(deleted_at=deleted_at)
+                )
+        return len(missing)
 
     async def list_directory_gap_summaries(
         self,

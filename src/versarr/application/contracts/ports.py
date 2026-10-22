@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -66,6 +67,13 @@ class StateRepository(Protocol):
     async def get_snapshot(self, media_path: Path) -> SnapshotStateRecord | None: ...
 
     async def record_snapshot(self, snapshot: TrackSnapshot) -> None: ...
+
+    async def mark_missing_snapshots_deleted(
+        self,
+        library_root: Path,
+        present_paths: Collection[Path],
+        deleted_at: datetime,
+    ) -> int: ...
 
     async def get_provenance(self, media_path: Path) -> ProvenanceRecord | None: ...
 
