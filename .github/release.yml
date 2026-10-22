@@ -1,0 +1,35 @@
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+  categories:
+    - title: Breaking changes
+      labels:
+        - breaking-change
+    - title: Security
+      labels:
+        - security
+    - title: Features
+      labels:
+        - enhancement
+        - feature
+    - title: Bug fixes
+      labels:
+        - bug
+    - title: Documentation
+      labels:
+        - documentation
+        - docs
+    - title: Dependencies
+      labels:
+        - dependencies
+    - title: CI, packaging and maintenance
+      labels:
+        - ci
+        - docker
+        - packaging
+        - tech-debt
+        - validation
+    - title: Other changes
+      labels:
+        - "*"
