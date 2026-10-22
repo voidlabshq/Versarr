@@ -1,13 +1,24 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from sqlalchemy import Engine
 
-from versarr.domain import LyricsPresence, TrackIdentity, TrackSnapshot, hash_meaningful_snapshot
+from versarr.application.services import IngestionService, ReconciliationService, SystemClock
+from versarr.domain import (
+    LyricsPresence,
+    ScanKind,
+    TrackIdentity,
+    TrackSnapshot,
+    TriggerKind,
+    hash_meaningful_snapshot,
+)
+from versarr.infrastructure.filesystem.scanner import FilesystemScanner
 from versarr.infrastructure.persistence import SqliteStateRepository
+from versarr.observability import MetricsFacade
 
 
 def _build_snapshot(
@@ -91,3 +102,83 @@ async def test_repository_lists_directory_gap_summaries(sqlite_engine: Engine) -
     assert second.directory_path == Path("/music/Album B")
     assert second.tracks_missing_lyrics == 1
     assert second.failed_jobs == 1
+
+
+@pytest.mark.asyncio
+async def test_missing_snapshots_are_excluded_from_gap_report_until_seen_again(sqlite_engine: Engine) -> None:
+    repository = SqliteStateRepository(sqlite_engine)
+    kept = _build_snapshot(Path("/music/Kept/01 - Kept.flac"), sidecar_exists=True)
+    removed = _build_snapshot(Path("/music/Removed/01 - Gone.flac"), sidecar_exists=False)
+    await repository.record_snapshot(kept)
+    await repository.record_snapshot(removed)
+
+    count = await repository.mark_missing_snapshots_deleted(Path("/music"), [kept.media_path], datetime.now(UTC))
+
+    assert count == 1
+    summaries = await repository.list_directory_gap_summaries()
+    assert [summary.directory_path for summary in summaries] == [Path("/music/Kept")]
+    stored = await repository.get_snapshot(removed.media_path)
+    assert stored is not None
+    assert stored.deleted_at is not None
+
+    assert await repository.mark_missing_snapshots_deleted(Path("/music"), [kept.media_path], datetime.now(UTC)) == 0
+
+    await repository.record_snapshot(removed)
+    summaries = await repository.list_directory_gap_summaries()
+    assert [summary.directory_path for summary in summaries] == [Path("/music/Kept"), Path("/music/Removed")]
+
+
+@pytest.mark.asyncio
+async def test_mark_missing_snapshots_deleted_is_scoped_to_library_root(sqlite_engine: Engine) -> None:
+    repository = SqliteStateRepository(sqlite_engine)
+    track = _build_snapshot(Path("/music/Album/01 - Track.flac"), sidecar_exists=True)
+    await repository.record_snapshot(track)
+
+    count = await repository.mark_missing_snapshots_deleted(Path("/other"), [], datetime.now(UTC))
+
+    assert count == 0
+    assert len(await repository.list_directory_gap_summaries()) == 1
+
+
+@pytest.fixture(scope="module")
+def metrics() -> MetricsFacade:
+    return MetricsFacade()
+
+
+def _reconciliation(repository: SqliteStateRepository, metrics: MetricsFacade) -> ReconciliationService:
+    return ReconciliationService(
+        repository=repository,
+        scanner=FilesystemScanner(),
+        ingestion=IngestionService(repository=repository, metrics=metrics),
+        clock=SystemClock(),
+        metrics=metrics,
+    )
+
+
+@pytest.mark.asyncio
+async def test_scan_root_removes_deleted_directories_from_gap_report(sqlite_engine: Engine, tmp_path: Path, metrics: MetricsFacade) -> None:
+    root = tmp_path / "music"
+    (root / "New").mkdir(parents=True)
+    new_track = root / "New" / "01 - New.flac"
+    new_track.write_bytes(b"x")
+    repository = SqliteStateRepository(sqlite_engine)
+    old_track = _build_snapshot(root / "Old" / "01 - Old.flac", sidecar_exists=False)
+    await repository.record_snapshot(replace(old_track, library_root=root))
+    await repository.record_snapshot(replace(_build_snapshot(new_track, sidecar_exists=False), library_root=root))
+
+    await _reconciliation(repository, metrics).scan_root(root, ScanKind.RECONCILIATION, TriggerKind.MANUAL_RESCAN)
+
+    summaries = await repository.list_directory_gap_summaries()
+    assert [summary.directory_path for summary in summaries] == [root / "New"]
+
+
+@pytest.mark.asyncio
+async def test_scan_root_keeps_state_when_root_is_missing(sqlite_engine: Engine, tmp_path: Path, metrics: MetricsFacade) -> None:
+    root = tmp_path / "unmounted"
+    repository = SqliteStateRepository(sqlite_engine)
+    track = _build_snapshot(root / "Album" / "01 - Track.flac", sidecar_exists=True)
+    await repository.record_snapshot(replace(track, library_root=root))
+
+    await _reconciliation(repository, metrics).scan_root(root, ScanKind.RECONCILIATION, TriggerKind.MANUAL_RESCAN)
+
+    assert len(await repository.list_directory_gap_summaries()) == 1

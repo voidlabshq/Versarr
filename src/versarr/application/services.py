@@ -130,8 +130,11 @@ class ReconciliationService:
                     priority=JobPriority.RECONCILIATION,
                     event_kind=scan_kind,
                 )
+            removed = 0
+            if root.is_dir():
+                removed = await self.repository.mark_missing_snapshots_deleted(root, candidates, self.clock.now())
             await self.repository.record_scan_finish(root, scan_kind, self.clock.now(), "ok")
-            logger.info("scan_root_completed", candidates=len(candidates))
+            logger.info("scan_root_completed", candidates=len(candidates), removed=removed)
             return len(candidates)
         except Exception as error:
             await self.repository.record_scan_finish(
