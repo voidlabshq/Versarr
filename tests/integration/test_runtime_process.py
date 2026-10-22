@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
@@ -15,6 +17,7 @@ import pytest
 
 _SERVE_COMMAND = [sys.executable, "-c", "from versarr.cli import app; app()", "serve"]
 _STARTUP_TIMEOUT_SECONDS = 30.0
+_SHUTDOWN_TIMEOUT_SECONDS = 15.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,3 +114,22 @@ def test_lock_is_released_when_holder_is_killed(deployment: _Deployment, spawned
     second, second_port = _spawn(deployment, spawned)
 
     _wait_until_ready(second, second_port)
+
+
+def test_sigterm_shuts_down_gracefully_and_releases_resources(deployment: _Deployment, spawned: list[subprocess.Popen[str]]) -> None:
+    server, port = _spawn(deployment, spawned)
+    _wait_until_ready(server, port)
+
+    server.send_signal(signal.SIGTERM)
+    output, _ = server.communicate(timeout=_SHUTDOWN_TIMEOUT_SECONDS)
+
+    # uvicorn re-raises the captured signal after a clean shutdown, so the exit is 0 or SIGTERM.
+    assert server.returncode in {0, -signal.SIGTERM}
+    assert "Application shutdown complete" in output
+    assert "runtime_stopped" in output
+    assert "Traceback" not in output
+    with sqlite3.connect(deployment.state_dir / "versarr.db") as connection:
+        assert connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+
+    restarted, restarted_port = _spawn(deployment, spawned)
+    _wait_until_ready(restarted, restarted_port)
