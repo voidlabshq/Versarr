@@ -287,6 +287,13 @@ class JobProcessor:
                 provider_status=provider_result.status,
             )
 
+        if provider_result.status == ProviderStatus.REJECTED:
+            return _outcome(
+                ProcessingCategory.TERMINAL,
+                "provider_request_rejected",
+                provider_status=provider_result.status,
+            )
+
         if provider_result.status == ProviderStatus.NOT_FOUND:
             await self.repository.record_cooldown(
                 snapshot.identity.normalized_lookup_key,
