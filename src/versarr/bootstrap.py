@@ -164,6 +164,7 @@ class VersarrRuntime:
         await self._provider.aclose()
         await self._lock_manager.release()
         self.status.readiness.lock_held = False
+        self.logger.info("runtime_stopped")
 
     async def run_scan_once(self) -> None:
         configure_logging(self.settings.log_level)
