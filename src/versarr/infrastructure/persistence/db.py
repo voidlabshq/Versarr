@@ -23,6 +23,8 @@ def run_migrations(sqlite_path: Path) -> None:
     config = Config(str(alembic_ini))
     config.set_main_option("sqlalchemy.url", f"sqlite:///{sqlite_path}")
     config.set_main_option("script_location", str(alembic_ini.parent / "alembic"))
+    # Keep the application's logging configuration; alembic.ini's would reset the root logger.
+    config.attributes["configure_logger"] = False
     command.upgrade(config, "head")
 
 
