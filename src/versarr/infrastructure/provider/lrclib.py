@@ -18,11 +18,13 @@ class LrclibProvider(LyricsProvider):
         timeout_seconds: int,
         user_agent: str,
         metrics: MetricsFacade,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             timeout=timeout_seconds,
             headers={"User-Agent": user_agent},
+            transport=transport,
         )
         self._metrics = metrics
         self._logger = get_logger("provider", provider="lrclib")
@@ -101,7 +103,49 @@ class LrclibProvider(LyricsProvider):
                 confidence=0.0,
             )
 
-        payload = response.json()
+        if 400 <= response.status_code < 500:
+            self._metrics.provider_requests_total.labels(
+                provider="lrclib",
+                status="rejected",
+            ).inc()
+            logger.warning(
+                "provider_query_completed",
+                status="rejected",
+                http_status=response.status_code,
+            )
+            return ProviderResult(
+                status=ProviderStatus.REJECTED,
+                provider_name="lrclib",
+                lyrics_text=None,
+                synced=False,
+                provider_track_id=None,
+                confidence=0.0,
+            )
+
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict):
+            self._metrics.provider_requests_total.labels(
+                provider="lrclib",
+                status="transient_failure",
+            ).inc()
+            logger.warning(
+                "provider_query_completed",
+                status="transient_failure",
+                http_status=response.status_code,
+                reason="malformed_body",
+            )
+            return ProviderResult(
+                status=ProviderStatus.TRANSIENT_FAILURE,
+                provider_name="lrclib",
+                lyrics_text=None,
+                synced=False,
+                provider_track_id=None,
+                confidence=0.0,
+            )
+
         synced = bool(payload.get("syncedLyrics"))
         lyrics_text = payload.get("syncedLyrics") or payload.get("plainLyrics")
         if not lyrics_text:

@@ -30,6 +30,7 @@ class ProviderStatus(StrEnum):
     NOT_FOUND = "not_found"
     AMBIGUOUS = "ambiguous"
     INVALID_CONTENT = "invalid_content"
+    REJECTED = "rejected"
     TRANSIENT_FAILURE = "transient_failure"
 
 
