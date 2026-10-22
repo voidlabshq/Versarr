@@ -22,11 +22,11 @@ def build_http_app(runtime: VersarrRuntime) -> FastAPI:
 
     @app.get("/health")
     async def health() -> dict[str, str]:
-        return {"status": "ok" if runtime.status.healthy else "degraded"}
+        return {"status": "ok" if runtime.healthy else "degraded"}
 
     @app.get("/ready")
     async def ready(response: Response) -> dict[str, str]:
-        if not runtime.status.readiness.ready:
+        if not (runtime.status.readiness.ready and runtime.healthy):
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             return {"status": "not_ready"}
         return {"status": "ready"}
