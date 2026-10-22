@@ -115,7 +115,7 @@ services:
     env_file:
       - .env
     ports:
-      - "8080:8080"
+      - "9280:9280"
     volumes:
       - ./state:/state
       - /srv/music:/music
@@ -125,7 +125,7 @@ Example `.env`:
 
 ```env
 VERSARR_LIBRARY_ROOTS=["/music"]
-VERSARR_HTTP_BIND_PORT=8080
+VERSARR_HTTP_BIND_PORT=9280
 ```
 
 Start:
@@ -137,7 +137,7 @@ docker compose up -d
 Health check:
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:9280/health
 ```
 
 Expected response:

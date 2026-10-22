@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     state_dir: Path = Path("/state")
     sqlite_path: Path = Path("/state/versarr.db")
     http_bind_host: str = "0.0.0.0"
-    http_bind_port: int = 8080
+    http_bind_port: int = 9280
     log_level: str = "INFO"
     worker_concurrency: int = 2
     provider_base_url: str = "https://lrclib.net"

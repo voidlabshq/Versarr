@@ -32,7 +32,7 @@ COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 USER versarr
-EXPOSE 8080
+EXPOSE 9280
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["versarr", "serve"]
 
