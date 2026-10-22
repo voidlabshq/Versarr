@@ -86,15 +86,15 @@ class VersarrRuntime:
         self.status.readiness.config_loaded = True
         self.metrics.set_readiness(False)
 
+        await self._acquire_lock()
+        self.status.readiness.lock_held = True
+
         run_migrations(self.settings.sqlite_path)
         self.status.readiness.migrations_complete = True
 
         self._engine = create_engine(self.settings.sqlite_path)
         self._repository = SqliteStateRepository(self._engine)
         self.status.readiness.database_ready = True
-
-        await self._lock_manager.acquire()
-        self.status.readiness.lock_held = True
 
         ingestion = IngestionService(self.repository, self.metrics, self.logger)
         reconciliation = ReconciliationService(
@@ -168,15 +168,15 @@ class VersarrRuntime:
     async def run_scan_once(self) -> None:
         configure_logging(self.settings.log_level)
         self.settings.ensure_directories()
-        run_migrations(self.settings.sqlite_path)
-        self._engine = create_engine(self.settings.sqlite_path)
-        self._repository = SqliteStateRepository(self._engine)
-        self.logger.info(
-            "scan_once_started",
-            roots=[str(root) for root in self.settings.library_roots],
-        )
-        await self._lock_manager.acquire()
+        await self._acquire_lock()
         try:
+            run_migrations(self.settings.sqlite_path)
+            self._engine = create_engine(self.settings.sqlite_path)
+            self._repository = SqliteStateRepository(self._engine)
+            self.logger.info(
+                "scan_once_started",
+                roots=[str(root) for root in self.settings.library_roots],
+            )
             ingestion = IngestionService(self.repository, self.metrics, self.logger)
             reconciliation = ReconciliationService(
                 repository=self.repository,
@@ -209,6 +209,13 @@ class VersarrRuntime:
         finally:
             await self._provider.aclose()
             await self._lock_manager.release()
+
+    async def _acquire_lock(self) -> None:
+        try:
+            await self._lock_manager.acquire()
+        except RuntimeError as error:
+            self.logger.error("instance_lock_held", state_dir=str(self.settings.state_dir), detail=str(error))
+            raise
 
     async def enqueue_control_request(
         self,
