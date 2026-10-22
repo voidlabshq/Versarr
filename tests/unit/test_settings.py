@@ -38,3 +38,13 @@ stability_quiet_period_seconds = 15
     assert settings.scan.startup_reconciliation is False
     assert settings.scan.reconciliation_interval_seconds == 1200
     assert settings.scan.stability_quiet_period_seconds == 15
+
+
+def test_settings_default_http_port(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("VERSARR_HTTP_BIND_PORT", raising=False)
+    monkeypatch.setenv("VERSARR_LIBRARY_ROOTS", f'["{tmp_path.as_posix()}"]')
+
+    settings = load_settings()
+
+    assert settings.http_bind_host == "0.0.0.0"
+    assert settings.http_bind_port == 9280

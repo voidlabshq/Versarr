@@ -69,7 +69,7 @@ VERSARR_STATE_DIR="/state"
 VERSARR_SQLITE_PATH="/state/versarr.db"
 
 VERSARR_HTTP_BIND_HOST="0.0.0.0"
-VERSARR_HTTP_BIND_PORT=8080
+VERSARR_HTTP_BIND_PORT=9280
 
 VERSARR_WORKER_CONCURRENCY=2
 
@@ -107,7 +107,7 @@ services:
       - .env
 
     ports:
-      - "8080:8080"
+      - "9280:9280"
 
     volumes:
       - ./state:/state
@@ -149,7 +149,7 @@ Operational endpoints:
 Health check:
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:9280/health
 ```
 
 Expected response:
@@ -242,7 +242,7 @@ Check:
 
 ```bash
 docker compose ps
-curl http://localhost:8080/health
+curl http://localhost:9280/health
 ```
 
 Validate:

@@ -213,7 +213,7 @@ These are infrastructure-facing endpoints, not public application APIs.
 Default bind:
 
 ```text
-0.0.0.0:8080
+0.0.0.0:9280
 ```
 
 ---
@@ -231,7 +231,7 @@ Typical uses:
 Example:
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:9280/health
 ```
 
 Expected response:

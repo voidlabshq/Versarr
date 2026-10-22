@@ -27,7 +27,7 @@ Versarr uses:
 Examples:
 
 ```env
-VERSARR_HTTP_BIND_PORT=8080
+VERSARR_HTTP_BIND_PORT=9280
 VERSARR_WORKER_CONCURRENCY=4
 VERSARR_SCAN__RECONCILIATION_INTERVAL_SECONDS=1800
 VERSARR_POLICY__OVERWRITE_EXISTING=false
@@ -115,7 +115,7 @@ VERSARR_LIBRARY_ROOTS=["/music","/music/archive"]
 
 ```env
 VERSARR_HTTP_BIND_HOST="0.0.0.0"
-VERSARR_HTTP_BIND_PORT=8080
+VERSARR_HTTP_BIND_PORT=9280
 ```
 
 Controls operational endpoint exposure.
@@ -222,7 +222,7 @@ VERSARR_STATE_DIR="/state"
 VERSARR_SQLITE_PATH="/state/versarr.db"
 
 VERSARR_HTTP_BIND_HOST="0.0.0.0"
-VERSARR_HTTP_BIND_PORT=8080
+VERSARR_HTTP_BIND_PORT=9280
 
 VERSARR_WORKER_CONCURRENCY=2
 
@@ -248,7 +248,7 @@ state_dir = "/state"
 sqlite_path = "/state/versarr.db"
 
 http_bind_host = "0.0.0.0"
-http_bind_port = 8080
+http_bind_port = 9280
 ```
 
 Environment-variable deployment remains the recommended operational path.
