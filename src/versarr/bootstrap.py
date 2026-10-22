@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -15,6 +14,7 @@ from versarr.application import (
     RecoveryService,
 )
 from versarr.application.services import SystemClock
+from versarr.application.supervision import LoopSupervisor
 from versarr.config import Settings
 from versarr.domain import (
     ControlRequest,
@@ -70,8 +70,8 @@ class VersarrRuntime:
             roots=settings.library_roots,
             callback=self._handle_filesystem_event,
         )
-        self._tasks: list[asyncio.Task[None]] = []
         self._stop_event = asyncio.Event()
+        self._supervisor = LoopSupervisor(stop_event=self._stop_event, logger=self.logger)
         self._suppression_hashes: dict[Path, str] = {}
 
     @property
@@ -141,11 +141,12 @@ class VersarrRuntime:
                     trigger=TriggerKind.STARTUP,
                 )
 
-        self._tasks = [asyncio.create_task(self._worker_loop(worker_id=f"worker-{index}")) for index in range(self.settings.worker_concurrency)]
-        self._tasks.append(asyncio.create_task(self._stability_loop(ingestion)))
-        self._tasks.append(asyncio.create_task(self._control_loop()))
-        self._tasks.append(asyncio.create_task(self._reconciliation_loop(reconciliation)))
-        self._tasks.append(asyncio.create_task(self._metrics_loop()))
+        for index in range(self.settings.worker_concurrency):
+            self._spawn_worker(f"worker-{index}")
+        self._supervisor.spawn("stability", lambda: self._stability_step(ingestion))
+        self._supervisor.spawn("control", self._control_step)
+        self._supervisor.spawn("reconciliation", lambda: self._reconciliation_step(reconciliation))
+        self._supervisor.spawn("metrics", self._metrics_step)
         self.status.readiness.worker_active = True
         self.metrics.set_readiness(self.status.readiness.ready)
 
@@ -155,12 +156,7 @@ class VersarrRuntime:
         self.metrics.set_readiness(False)
         self._stop_event.set()
         await self._watcher.stop()
-        for task in self._tasks:
-            task.cancel()
-        for task in self._tasks:
-            with suppress(asyncio.CancelledError):
-                await task
-        self._tasks.clear()
+        await self._supervisor.stop()
         await self._provider.aclose()
         await self._lock_manager.release()
         self.status.readiness.lock_held = False
@@ -244,53 +240,64 @@ class VersarrRuntime:
             )
         )
 
-    async def _worker_loop(self, worker_id: str) -> None:
-        while not self._stop_event.is_set():
-            processed = await self._job_processor.process_next(worker_id)
-            if not processed:
-                await asyncio.sleep(1)
+    def _spawn_worker(self, worker_id: str) -> None:
+        async def step() -> None:
+            await self._worker_step(worker_id)
 
-    async def _stability_loop(self, ingestion: IngestionService) -> None:
-        while not self._stop_event.is_set():
-            ready_paths = await self._stability.poll_ready_paths()
-            for media_path in ready_paths:
-                library_root = self._match_root(media_path)
-                if library_root is None:
-                    continue
-                await ingestion.ingest_candidate(
-                    library_root=library_root,
-                    media_path=media_path,
-                    trigger=TriggerKind.WATCHER,
-                    priority=JobPriority.WATCHER,
-                    event_kind="stable",
-                )
+        self._supervisor.spawn(worker_id, step)
+
+    @property
+    def healthy(self) -> bool:
+        return self.status.healthy and self._supervisor.healthy
+
+    async def _worker_step(self, worker_id: str) -> None:
+        processed = await self._job_processor.process_next(worker_id)
+        if not processed:
             await asyncio.sleep(1)
 
-    async def _control_loop(self) -> None:
-        while not self._stop_event.is_set():
-            await self._control_service.drain_once()
-            await asyncio.sleep(5)
+    async def _stability_step(self, ingestion: IngestionService) -> None:
+        ready_paths = await self._stability.poll_ready_paths()
+        for media_path in ready_paths:
+            library_root = self._match_root(media_path)
+            if library_root is None:
+                continue
+            await ingestion.ingest_candidate(
+                library_root=library_root,
+                media_path=media_path,
+                trigger=TriggerKind.WATCHER,
+                priority=JobPriority.WATCHER,
+                event_kind="stable",
+            )
+        await asyncio.sleep(1)
 
-    async def _reconciliation_loop(self, reconciliation: ReconciliationService) -> None:
-        while not self._stop_event.is_set():
-            await asyncio.sleep(self.settings.scan.reconciliation_interval_seconds)
-            for root in self.settings.library_roots:
+    async def _control_step(self) -> None:
+        await self._control_service.drain_once()
+        await asyncio.sleep(5)
+
+    async def _reconciliation_step(self, reconciliation: ReconciliationService) -> None:
+        await asyncio.sleep(self.settings.scan.reconciliation_interval_seconds)
+        first_error: Exception | None = None
+        for root in self.settings.library_roots:
+            try:
                 await reconciliation.scan_root(
                     root,
                     scan_kind=ScanKind.RECONCILIATION,
                     trigger=TriggerKind.RECONCILIATION,
                 )
+            except Exception as error:
+                first_error = first_error or error
+        if first_error is not None:
+            raise first_error
 
-    async def _metrics_loop(self) -> None:
-        while not self._stop_event.is_set():
-            for state, priority, count in await self.repository.get_queue_depths():
-                self.metrics.queue_depth.labels(state=state, priority=priority).set(count)
-            pending_requests = await self.repository.count_pending_control_requests()
-            active_cooldowns = await self.repository.count_active_cooldowns(self.clock.now())
-            self.metrics.control_requests_pending.set(pending_requests)
-            self.metrics.cooldowns_active.set(active_cooldowns)
-            self.metrics.set_readiness(self.status.readiness.ready)
-            await asyncio.sleep(10)
+    async def _metrics_step(self) -> None:
+        for state, priority, count in await self.repository.get_queue_depths():
+            self.metrics.queue_depth.labels(state=state, priority=priority).set(count)
+        pending_requests = await self.repository.count_pending_control_requests()
+        active_cooldowns = await self.repository.count_active_cooldowns(self.clock.now())
+        self.metrics.control_requests_pending.set(pending_requests)
+        self.metrics.cooldowns_active.set(active_cooldowns)
+        self.metrics.set_readiness(self.status.readiness.ready and self.healthy)
+        await asyncio.sleep(10)
 
     async def _handle_filesystem_event(self, candidate_path: Path, event_kind: str) -> None:
         self.metrics.watcher_events_total.labels(kind=event_kind).inc()
