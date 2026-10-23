@@ -18,9 +18,22 @@ def normalize_lookup_text(value: str) -> str:
 
 
 def normalize_lyrics_text(value: str) -> str:
+    """Tidy lyrics for storage: newlines, BOM, HTML, trailing space. Never rewrites characters."""
+    text = value.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff")
+    text = html.unescape(text)
+    text = unicodedata.normalize("NFC", text)
+    return _tidy_lyrics(text)
+
+
+def normalize_lyrics_for_comparison(value: str) -> str:
+    """Canonical form used to decide whether two lyrics are the same text (not for writing)."""
     text = value.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff")
     text = html.unescape(text)
     text = unicodedata.normalize("NFKC", text)
+    return _tidy_lyrics(text)
+
+
+def _tidy_lyrics(text: str) -> str:
     text = _HTML_TAG_RE.sub("", text)
     text = _TRAILING_SPACE_RE.sub("\n", text)
     text = _LYRICS_BLANK_RE.sub("\n\n", text)

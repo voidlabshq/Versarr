@@ -25,7 +25,7 @@ from .enums import (
     TriggerKind,
 )
 from .hashing import hash_meaningful_snapshot, hash_normalized_lyrics
-from .normalization import normalize_lookup_text, normalize_lyrics_text
+from .normalization import normalize_lookup_text, normalize_lyrics_for_comparison, normalize_lyrics_text
 
 __all__ = [
     "ControlRequest",
@@ -53,5 +53,6 @@ __all__ = [
     "hash_meaningful_snapshot",
     "hash_normalized_lyrics",
     "normalize_lookup_text",
+    "normalize_lyrics_for_comparison",
     "normalize_lyrics_text",
 ]
