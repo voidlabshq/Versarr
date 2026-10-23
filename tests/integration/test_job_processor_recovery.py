@@ -6,12 +6,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 
 from versarr.application.services import JobProcessor
 from versarr.config import Settings
 from versarr.domain import (
     JobPriority,
+    JobState,
     LyricsPresence,
     ProviderResult,
     ProviderStatus,
@@ -22,6 +23,7 @@ from versarr.domain import (
 )
 from versarr.infrastructure.filesystem import AtomicLrcWriter
 from versarr.infrastructure.persistence import SqliteStateRepository
+from versarr.infrastructure.persistence.schema import jobs
 
 
 class FixedClock:
@@ -285,3 +287,55 @@ async def test_job_processor_renews_lease_during_long_running_work(sqlite_engine
 
     assert processed is True
     assert repository.heartbeat_calls >= 1
+
+
+def _load_job(engine: Engine, media_path: Path) -> dict[str, object]:
+    with engine.begin() as connection:
+        row = connection.execute(select(jobs).where(jobs.c.job_key == str(media_path))).mappings().one()
+    return dict(row)
+
+
+class AlwaysFailingMetadataReader:
+    async def read_snapshot(self, media_path: Path, library_root: Path) -> TrackSnapshot:
+        del media_path, library_root
+        msg = "unparseable tag block"
+        raise RuntimeError(msg)
+
+
+@pytest.mark.asyncio
+async def test_job_processor_gives_up_after_max_attempts_with_growing_backoff(sqlite_engine: Engine, tmp_path: Path) -> None:
+    library_root = tmp_path / "music"
+    library_root.mkdir()
+    media_path = library_root / "track.flac"
+    media_path.write_bytes(b"audio")
+    repository = SqliteStateRepository(sqlite_engine)
+    await _enqueue_job(repository, media_path, library_root)
+    settings = _build_settings(library_root, library_root / ".state")
+    clock = FixedClock(datetime.now(UTC) + timedelta(seconds=1))
+    processor = JobProcessor(
+        repository=repository,
+        metadata_reader=AlwaysFailingMetadataReader(),
+        provider=FakeProvider("unused"),
+        sidecar_writer=AtomicLrcWriter(),
+        metrics=NullMetrics(),
+        clock=clock,
+        settings=settings,
+    )
+
+    delays: list[float] = []
+    for _ in range(settings.retry.file_unstable.max_attempts):
+        assert await processor.process_next("worker-1") is True
+        job = _load_job(sqlite_engine, media_path)
+        if job["state"] == JobState.FAILED:
+            break
+        next_attempt_at = job["next_attempt_at"]
+        assert isinstance(next_attempt_at, datetime)
+        delays.append((next_attempt_at.replace(tzinfo=UTC) - clock.now()).total_seconds())
+        clock.advance(int(delays[-1]) + 1)
+
+    final = _load_job(sqlite_engine, media_path)
+    assert final["state"] == JobState.FAILED
+    assert final["last_reason_code"] == "unexpected_error_retry_exhausted"
+    assert delays == sorted(delays)
+    assert delays[-1] > delays[0]
+    assert await processor.process_next("worker-1") is False

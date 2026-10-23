@@ -436,25 +436,11 @@ class JobProcessor:
             return True
         except OSError as error:
             logger.exception("job_processing_failed", error_class=type(error).__name__)
-            next_attempt = self.clock.now() + timedelta(seconds=self.settings.retry.file_unstable.initial_seconds)
-            await self.repository.retry_job(
-                job.job_key,
-                "filesystem_transient",
-                type(error).__name__,
-                next_attempt,
-            )
-            self.metrics.jobs_retried_total.labels(classification=RetryClassification.FILE_TRANSIENT).inc()
+            await self._retry_or_fail(job, "filesystem_transient", error)
             return True
         except Exception as error:
             logger.exception("job_processing_failed", error_class=type(error).__name__)
-            next_attempt = self.clock.now() + timedelta(seconds=self.settings.retry.file_unstable.initial_seconds)
-            await self.repository.retry_job(
-                job.job_key,
-                "unexpected_error",
-                type(error).__name__,
-                next_attempt,
-            )
-            self.metrics.jobs_retried_total.labels(classification=RetryClassification.FILE_TRANSIENT).inc()
+            await self._retry_or_fail(job, "unexpected_error", error)
             return True
         finally:
             if heartbeat_task is not None:
@@ -463,6 +449,18 @@ class JobProcessor:
                     await heartbeat_task
             self.metrics.active_jobs.dec()
             self.metrics.job_duration_seconds.observe(perf_counter() - started)
+
+    async def _retry_or_fail(self, job: EnrichmentJob, reason_code: str, error: Exception) -> None:
+        retry = self._build_retry(self.clock.now(), job.attempt_count, RetryClassification.FILE_TRANSIENT)
+        if retry.next_attempt_at is None:
+            await self.repository.fail_job(job.job_key, f"{reason_code}_retry_exhausted", type(error).__name__)
+            self.metrics.jobs_completed_total.labels(
+                outcome=ProcessingCategory.TERMINAL,
+                reason=f"{reason_code}_retry_exhausted",
+            ).inc()
+            return
+        await self.repository.retry_job(job.job_key, reason_code, type(error).__name__, retry.next_attempt_at)
+        self.metrics.jobs_retried_total.labels(classification=RetryClassification.FILE_TRANSIENT).inc()
 
     def _build_retry(self, now: datetime, attempt_count: int, classification: RetryClassification) -> RetryDecision:
         if classification == RetryClassification.PROVIDER_TRANSIENT:
