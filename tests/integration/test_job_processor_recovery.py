@@ -339,3 +339,84 @@ async def test_job_processor_gives_up_after_max_attempts_with_growing_backoff(sq
     assert delays == sorted(delays)
     assert delays[-1] > delays[0]
     assert await processor.process_next("worker-1") is False
+
+
+@dataclass
+class ScriptedProvider:
+    statuses: list[ProviderStatus]
+    lyrics_text: str = "Hello"
+    fetch_count: int = 0
+
+    async def fetch(self, identity: TrackIdentity) -> ProviderResult:
+        self.fetch_count += 1
+        status = self.statuses.pop(0)
+        matched = status == ProviderStatus.MATCHED
+        return ProviderResult(
+            status=status,
+            provider_name="lrclib",
+            lyrics_text=self.lyrics_text if matched else None,
+            synced=False,
+            provider_track_id="1" if matched else None,
+            confidence=1.0 if matched else 0.0,
+            matched_identity=identity if matched else None,
+        )
+
+
+def _scripted_processor(
+    repository: SqliteStateRepository, library_root: Path, media_path: Path, provider: ScriptedProvider
+) -> tuple[JobProcessor, FixedClock]:
+    clock = FixedClock(datetime.now(UTC) + timedelta(seconds=1))
+    return JobProcessor(
+        repository=repository,
+        metadata_reader=FakeMetadataReader(library_root, media_path),
+        provider=provider,
+        sidecar_writer=AtomicLrcWriter(),
+        metrics=NullMetrics(),
+        clock=clock,
+        settings=_build_settings(library_root, library_root / ".state"),
+    ), clock
+
+
+@pytest.mark.asyncio
+async def test_transient_provider_failure_is_retried_and_lyrics_are_written(sqlite_engine: Engine, tmp_path: Path) -> None:
+    library_root = tmp_path / "music"
+    library_root.mkdir()
+    media_path = library_root / "track.flac"
+    media_path.write_bytes(b"audio")
+    repository = SqliteStateRepository(sqlite_engine)
+    provider = ScriptedProvider([ProviderStatus.TRANSIENT_FAILURE, ProviderStatus.MATCHED])
+    await _enqueue_job(repository, media_path, library_root)
+    processor, clock = _scripted_processor(repository, library_root, media_path, provider)
+
+    assert await processor.process_next("worker-1") is True
+    assert _load_job(sqlite_engine, media_path)["state"] == JobState.PENDING
+    clock.advance(3600)
+    assert await processor.process_next("worker-1") is True
+
+    assert provider.fetch_count == 2
+    assert media_path.with_suffix(".lrc").read_text(encoding="utf-8") == "Hello"
+
+
+@pytest.mark.asyncio
+async def test_expired_not_found_cooldown_triggers_a_new_lookup(sqlite_engine: Engine, tmp_path: Path) -> None:
+    library_root = tmp_path / "music"
+    library_root.mkdir()
+    media_path = library_root / "track.flac"
+    media_path.write_bytes(b"audio")
+    repository = SqliteStateRepository(sqlite_engine)
+    provider = ScriptedProvider([ProviderStatus.NOT_FOUND, ProviderStatus.MATCHED])
+    await _enqueue_job(repository, media_path, library_root)
+    processor, clock = _scripted_processor(repository, library_root, media_path, provider)
+    cooldown_seconds = _build_settings(library_root, library_root / ".state").cooldowns.not_found_seconds
+
+    await processor.process_next("worker-1")
+    await _enqueue_job(repository, media_path, library_root)
+    await processor.process_next("worker-1")
+    assert provider.fetch_count == 1
+
+    clock.advance(cooldown_seconds + 1)
+    await _enqueue_job(repository, media_path, library_root)
+    await processor.process_next("worker-1")
+
+    assert provider.fetch_count == 2
+    assert media_path.with_suffix(".lrc").exists()
