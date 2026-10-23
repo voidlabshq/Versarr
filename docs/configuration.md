@@ -158,6 +158,22 @@ VERSARR_PROVIDER_BASE_URL="https://lrclib.net"
 VERSARR_PROVIDER_TIMEOUT_SECONDS=10
 ```
 
+#### Rate limiting and circuit breaker
+
+All workers share one limiter and one circuit breaker in front of the provider.
+
+```env
+# minimum spacing between provider requests
+VERSARR_PROVIDER_MIN_INTERVAL_SECONDS=0.5
+# consecutive 429/5xx/network failures before the circuit opens
+VERSARR_PROVIDER_CIRCUIT_FAILURE_THRESHOLD=3
+# first open window; doubles on each consecutive trip up to the max. A larger Retry-After wins.
+VERSARR_PROVIDER_CIRCUIT_OPEN_SECONDS=60
+VERSARR_PROVIDER_CIRCUIT_MAX_OPEN_SECONDS=900
+```
+
+While the circuit is open, jobs are deferred without using up retry attempts. After the window one probe request decides whether the circuit closes.
+
 ---
 
 ## Common Operational Tuning

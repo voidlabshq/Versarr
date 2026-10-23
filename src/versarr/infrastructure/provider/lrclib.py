@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from time import perf_counter
 
@@ -101,6 +103,7 @@ class LrclibProvider(LyricsProvider):
                 synced=False,
                 provider_track_id=None,
                 confidence=0.0,
+                retry_after_seconds=_parse_retry_after(response.headers.get("Retry-After")),
             )
 
         if 400 <= response.status_code < 500:
@@ -194,6 +197,22 @@ class LrclibProvider(LyricsProvider):
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return max(float(value), 0.0)
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max((when - datetime.now(UTC)).total_seconds(), 0.0)
 
 
 def _score_payload(identity: TrackIdentity, payload: dict[str, object]) -> float:

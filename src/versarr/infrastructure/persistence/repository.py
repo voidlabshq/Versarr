@@ -235,6 +235,27 @@ class SqliteStateRepository(StateRepository):
                 )
             )
 
+    async def defer_job(self, job_key: str, reason_code: str, next_attempt_at: datetime) -> None:
+        await asyncio.to_thread(self._defer_job_sync, job_key, reason_code, next_attempt_at)
+
+    def _defer_job_sync(self, job_key: str, reason_code: str, next_attempt_at: datetime) -> None:
+        # Deferral is not the job's fault, so the attempt consumed by the lease is refunded.
+        now = datetime.now(UTC)
+        with self._engine.begin() as connection:
+            connection.execute(
+                update(jobs)
+                .where(jobs.c.job_key == job_key)
+                .values(
+                    state=JobState.PENDING,
+                    lease_owner=None,
+                    lease_until=None,
+                    next_attempt_at=next_attempt_at,
+                    attempt_count=case((jobs.c.attempt_count > 0, jobs.c.attempt_count - 1), else_=0),
+                    last_reason_code=reason_code,
+                    updated_at=now,
+                )
+            )
+
     async def fail_job(self, job_key: str, reason_code: str, error_class: str) -> None:
         await asyncio.to_thread(self._fail_job_sync, job_key, reason_code, error_class)
 

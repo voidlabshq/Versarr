@@ -32,12 +32,14 @@ class ProviderStatus(StrEnum):
     INVALID_CONTENT = "invalid_content"
     REJECTED = "rejected"
     TRANSIENT_FAILURE = "transient_failure"
+    THROTTLED = "throttled"
 
 
 class ProcessingCategory(StrEnum):
     WRITTEN = "written"
     PRESERVED = "preserved"
     RETRY = "retry"
+    DEFERRED = "deferred"
     TERMINAL = "terminal"
     NOOP = "noop"
 

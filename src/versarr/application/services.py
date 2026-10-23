@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -259,6 +260,14 @@ class JobProcessor:
                 return _outcome(ProcessingCategory.NOOP, "cooldown_active")
 
         provider_result = await self.provider.fetch(snapshot.identity)
+        if provider_result.status == ProviderStatus.THROTTLED:
+            delay = timedelta(seconds=provider_result.retry_after_seconds or 1)
+            return _outcome(
+                ProcessingCategory.DEFERRED,
+                "provider_throttled",
+                retry_decision=RetryDecision(RetryClassification.PROVIDER_TRANSIENT, now + delay),
+                provider_status=provider_result.status,
+            )
         if provider_result.status == ProviderStatus.TRANSIENT_FAILURE:
             retry = self._build_retry(
                 now,
@@ -390,6 +399,8 @@ class JobProcessor:
                     outcome.retry_decision.classification,
                     outcome.retry_decision.next_attempt_at,
                 )
+            elif outcome.category == ProcessingCategory.DEFERRED and outcome.retry_decision.next_attempt_at is not None:
+                await self.repository.defer_job(job.job_key, outcome.reason_code, outcome.retry_decision.next_attempt_at)
             elif outcome.category == ProcessingCategory.TERMINAL:
                 await self.repository.fail_job(job.job_key, outcome.reason_code, "terminal")
             else:
@@ -464,6 +475,9 @@ class JobProcessor:
             window.initial_seconds * (2 ** max(attempt_count - 1, 0)),
             window.max_seconds,
         )
+        if classification == RetryClassification.PROVIDER_TRANSIENT:
+            # Spread retries so jobs that failed together do not hit the provider together.
+            delay_seconds = min(delay_seconds * random.uniform(0.9, 1.1), window.max_seconds)
         return RetryDecision(classification, now + timedelta(seconds=delay_seconds))
 
     def _ensure_within_root(self, media_path: Path, library_root: Path) -> None:
