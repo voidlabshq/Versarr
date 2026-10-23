@@ -33,6 +33,8 @@ RUN chmod +x /entrypoint.sh
 
 USER versarr
 EXPOSE 9280
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD ["python", "-c", "import json, os, sys, urllib.request as u; port = os.environ.get('VERSARR_HTTP_BIND_PORT', '9280'); sys.exit(0 if json.load(u.urlopen(f'http://127.0.0.1:{port}/health', timeout=3)).get('status') == 'ok' else 1)"]
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["versarr", "serve"]
 
