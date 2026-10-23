@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 import pytest
 
-from versarr.application.resilient_provider import ResilientProvider
+from versarr.application.resilient_provider import RequestPacer, ResilientProvider
 from versarr.domain import ProviderResult, ProviderStatus, TrackIdentity
 
 _IDENTITY = TrackIdentity(
@@ -56,19 +56,17 @@ class _Clock:
         self.now += seconds
 
 
-def _gate(inner: _ScriptedProvider, clock: _Clock, **overrides: float) -> ResilientProvider:
-    settings = {"min_interval_seconds": 0.0, "failure_threshold": 2, "open_seconds": 60, "max_open_seconds": 300, **overrides}
-    return ResilientProvider(inner, monotonic=clock.monotonic, sleep=clock.sleep, **settings)  # type: ignore[arg-type]
+def _gate(inner: _ScriptedProvider, clock: _Clock) -> ResilientProvider:
+    return ResilientProvider(inner, monotonic=clock.monotonic, failure_threshold=2, open_seconds=60, max_open_seconds=300)
 
 
 @pytest.mark.asyncio
-async def test_requests_are_spaced_by_min_interval() -> None:
+async def test_pacer_spaces_requests_by_min_interval() -> None:
     clock = _Clock()
-    inner = _ScriptedProvider(lambda: _result(ProviderStatus.NOT_FOUND))
-    gate = _gate(inner, clock, min_interval_seconds=2.0)
+    pacer = RequestPacer(2.0, monotonic=clock.monotonic, sleep=clock.sleep)
 
     for _ in range(3):
-        await gate.fetch(_IDENTITY)
+        await pacer.wait()
 
     assert clock.slept == [2.0, 2.0]
 
@@ -76,13 +74,11 @@ async def test_requests_are_spaced_by_min_interval() -> None:
 @pytest.mark.asyncio
 async def test_concurrent_callers_share_the_pace() -> None:
     clock = _Clock()
-    inner = _ScriptedProvider(lambda: _result(ProviderStatus.NOT_FOUND))
-    gate = _gate(inner, clock, min_interval_seconds=1.0)
+    pacer = RequestPacer(1.0, monotonic=clock.monotonic, sleep=clock.sleep)
 
-    await asyncio.gather(*(gate.fetch(_IDENTITY) for _ in range(4)))
+    await asyncio.gather(*(pacer.wait() for _ in range(4)))
 
     assert clock.now - 1000.0 == pytest.approx(3.0)
-    assert inner.calls == 4
 
 
 @pytest.mark.asyncio

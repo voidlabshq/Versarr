@@ -11,10 +11,35 @@ from versarr.domain import ProviderResult, ProviderStatus, TrackIdentity
 _PROBE_RETRY_SECONDS = 5.0
 
 
-class ResilientProvider(LyricsProvider):
-    """Wraps a provider with request pacing and a circuit breaker shared by all workers.
+class RequestPacer:
+    """Spaces outgoing requests at least ``min_interval_seconds`` apart; callers wait their turn."""
 
-    - Requests are spaced at least ``min_interval_seconds`` apart; callers wait their turn.
+    def __init__(
+        self,
+        min_interval_seconds: float,
+        *,
+        monotonic: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> None:
+        self._min_interval = min_interval_seconds
+        self._monotonic = monotonic
+        self._sleep = sleep
+        self._lock = asyncio.Lock()
+        self._next_slot = 0.0
+
+    async def wait(self) -> None:
+        async with self._lock:
+            now = self._monotonic()
+            wait = self._next_slot - now
+            if wait > 0:
+                await self._sleep(wait)
+                now = self._monotonic()
+            self._next_slot = max(now, self._next_slot) + self._min_interval
+
+
+class ResilientProvider(LyricsProvider):
+    """Wraps a provider with a circuit breaker shared by all workers.
+
     - After ``failure_threshold`` consecutive transient failures the circuit opens. While open,
       ``fetch`` returns ``THROTTLED`` immediately (with the remaining wait) so jobs defer without
       spending retry attempts. The open window honors the provider's ``Retry-After`` and otherwise
@@ -27,26 +52,20 @@ class ResilientProvider(LyricsProvider):
         self,
         inner: LyricsProvider,
         *,
-        min_interval_seconds: float,
         failure_threshold: int,
         open_seconds: float,
         max_open_seconds: float,
         monotonic: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         metrics: Any = None,
         logger: Any = None,
     ) -> None:
         self._inner = inner
-        self._min_interval = min_interval_seconds
         self._failure_threshold = failure_threshold
         self._open_seconds = open_seconds
         self._max_open_seconds = max_open_seconds
         self._monotonic = monotonic
-        self._sleep = sleep
         self._metrics = metrics
         self._logger = logger
-        self._pace_lock = asyncio.Lock()
-        self._next_slot = 0.0
         self._consecutive_failures = 0
         self._trips = 0
         self._open_until: float | None = None
@@ -66,7 +85,6 @@ class ResilientProvider(LyricsProvider):
                 confidence=0.0,
                 retry_after_seconds=wait,
             )
-        await self._pace()
         try:
             result = await self._inner.fetch(identity)
         except BaseException:
@@ -91,15 +109,6 @@ class ResilientProvider(LyricsProvider):
             return _PROBE_RETRY_SECONDS
         self._probe_in_flight = True
         return None
-
-    async def _pace(self) -> None:
-        async with self._pace_lock:
-            now = self._monotonic()
-            wait = self._next_slot - now
-            if wait > 0:
-                await self._sleep(wait)
-                now = self._monotonic()
-            self._next_slot = max(now, self._next_slot) + self._min_interval
 
     def _record(self, result: ProviderResult) -> None:
         self._probe_in_flight = False

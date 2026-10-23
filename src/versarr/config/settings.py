@@ -6,6 +6,8 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, TomlConfigSettingsSource
 
+from versarr import __version__
+
 
 class RetryWindow(BaseModel):
     initial_seconds: int
@@ -93,7 +95,8 @@ class Settings(BaseSettings):
     provider_circuit_failure_threshold: int = 3
     provider_circuit_open_seconds: int = 60
     provider_circuit_max_open_seconds: int = 900
-    provider_user_agent: str = "Versarr/2.0.0"
+    provider_search_fallback: bool = True
+    provider_user_agent: str = f"Versarr/{__version__} (+https://github.com/voidlabshq/Versarr)"
     scan: ScanSettings = Field(default_factory=ScanSettings)
     retry: RetrySettings = Field(default_factory=RetrySettings)
     cooldowns: CooldownSettings = Field(default_factory=CooldownSettings)
