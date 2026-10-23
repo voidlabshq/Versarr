@@ -18,6 +18,7 @@ from versarr.application.contracts import (
     SidecarWriter,
     StateRepository,
 )
+from versarr.application.job_policy import JobAction, JobFacts, decide
 from versarr.config import Settings
 from versarr.domain import (
     ControlRequestType,
@@ -284,42 +285,40 @@ class JobProcessor:
 
         provenance = await self.repository.get_provenance(job.media_path)
         sidecar_path = job.media_path.with_suffix(".lrc")
-        repair_missing_provenance = False
         current_sidecar_hash: str | None = None
-        if not snapshot.lyrics_presence.sidecar_exists and provenance is not None and provenance.sidecar_deleted and not job.force:
-            return _outcome(ProcessingCategory.PRESERVED, "sidecar_deleted_preserved")
-        if not snapshot.lyrics_presence.sidecar_exists and provenance is not None and not provenance.sidecar_deleted and not job.force:
-            await self.repository.mark_sidecar_deleted(job.media_path)
-            return _outcome(ProcessingCategory.PRESERVED, "sidecar_deleted_preserved")
-
         if snapshot.lyrics_presence.sidecar_exists:
             current_sidecar_hash = await self.sidecar_writer.read_normalized_hash(sidecar_path)
-            if provenance is None:
-                if job.attempt_count <= 1:
-                    if snapshot.lyrics_presence.embedded_exists:
-                        self.metrics.sidecar_conflicts_total.inc()
-                    return _outcome(ProcessingCategory.PRESERVED, "existing_sidecar_preserved")
-                repair_missing_provenance = True
-            elif current_sidecar_hash != provenance.normalized_lyrics_hash:
-                await self.repository.mark_manual_diverged(job.media_path)
-                self.metrics.manual_divergence_total.inc()
-                if not (job.force and job.overwrite_existing and job.allow_manual_overwrite):
-                    return _outcome(ProcessingCategory.PRESERVED, "manual_edit_preserved")
-            elif not (job.force and job.overwrite_existing):
-                return _outcome(ProcessingCategory.PRESERVED, "existing_sidecar_preserved")
-
-        if not snapshot.lyrics_presence.sidecar_exists and snapshot.lyrics_presence.embedded_exists:
-            self.metrics.embedded_preserved_total.inc()
-            return _outcome(ProcessingCategory.PRESERVED, "existing_embedded_lyrics_preserved")
-
         now = self.clock.now()
-        if not repair_missing_provenance:
-            cooldown = await self.repository.get_cooldown(
-                snapshot.identity.normalized_lookup_key,
-                "lrclib",
+        cooldown = await self.repository.get_cooldown(snapshot.identity.normalized_lookup_key, "lrclib")
+
+        decision = decide(
+            JobFacts(
+                sidecar_exists=snapshot.lyrics_presence.sidecar_exists,
+                embedded_exists=snapshot.lyrics_presence.embedded_exists,
+                has_provenance=provenance is not None,
+                provenance_sidecar_deleted=provenance is not None and provenance.sidecar_deleted,
+                provenance_hash_matches_sidecar=provenance is not None and current_sidecar_hash == provenance.normalized_lyrics_hash,
+                cooldown_active=cooldown is not None and cooldown > now,
+                attempt_count=job.attempt_count,
+                force=job.force,
+                overwrite_existing=job.overwrite_existing,
+                allow_manual_overwrite=job.allow_manual_overwrite,
             )
-            if cooldown is not None and cooldown > now and not job.force:
-                return _outcome(ProcessingCategory.NOOP, "cooldown_active")
+        )
+        if decision.mark_sidecar_deleted:
+            await self.repository.mark_sidecar_deleted(job.media_path)
+        if decision.mark_manual_diverged:
+            await self.repository.mark_manual_diverged(job.media_path)
+            self.metrics.manual_divergence_total.inc()
+        if decision.count_sidecar_conflict:
+            self.metrics.sidecar_conflicts_total.inc()
+        if decision.count_embedded_preserved:
+            self.metrics.embedded_preserved_total.inc()
+        if decision.action == JobAction.PRESERVE:
+            return _outcome(ProcessingCategory.PRESERVED, decision.reason_code)
+        if decision.action == JobAction.NOOP:
+            return _outcome(ProcessingCategory.NOOP, decision.reason_code)
+        repair_missing_provenance = decision.repair_missing_provenance
 
         provider_result = await self.provider.fetch(snapshot.identity)
         if provider_result.status == ProviderStatus.THROTTLED:
