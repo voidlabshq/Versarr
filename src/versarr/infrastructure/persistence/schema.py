@@ -1,18 +1,42 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from typing import Any
+
 from sqlalchemy import (
     Boolean,
     Column,
-    DateTime,
     Index,
     Integer,
     MetaData,
     String,
     Table,
     Text,
+    TypeDecorator,
 )
+from sqlalchemy import DateTime as _SqlDateTime
 
 metadata = MetaData()
+
+
+class DateTime(TypeDecorator[datetime]):
+    """Stores UTC and always returns timezone-aware UTC datetimes (SQLite drops tzinfo)."""
+
+    impl = _SqlDateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect: Any) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value
+        return value.astimezone(UTC)
+
+    def process_result_value(self, value: datetime | None, dialect: Any) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
 
 jobs = Table(
     "jobs",
@@ -24,9 +48,9 @@ jobs = Table(
     Column("priority", String(64), nullable=False),
     Column("state", String(32), nullable=False),
     Column("attempt_count", Integer, nullable=False, default=0),
-    Column("next_attempt_at", DateTime(timezone=True), nullable=True),
+    Column("next_attempt_at", DateTime(), nullable=True),
     Column("lease_owner", String(128), nullable=True),
-    Column("lease_until", DateTime(timezone=True), nullable=True),
+    Column("lease_until", DateTime(), nullable=True),
     Column("dirty", Boolean, nullable=False, default=False),
     Column("force", Boolean, nullable=False, default=False),
     Column("overwrite_existing", Boolean, nullable=False, default=False),
@@ -34,9 +58,9 @@ jobs = Table(
     Column("last_reason_code", String(128), nullable=True),
     Column("last_error_class", String(128), nullable=True),
     Column("last_event_kind", String(64), nullable=True),
-    Column("last_event_at", DateTime(timezone=True), nullable=True),
-    Column("created_at", DateTime(timezone=True), nullable=False),
-    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("last_event_at", DateTime(), nullable=True),
+    Column("created_at", DateTime(), nullable=False),
+    Column("updated_at", DateTime(), nullable=False),
 )
 
 track_snapshots = Table(
@@ -52,8 +76,8 @@ track_snapshots = Table(
     Column("duration_seconds", Integer, nullable=True),
     Column("embedded_exists", Boolean, nullable=False),
     Column("sidecar_exists", Boolean, nullable=False),
-    Column("last_seen_at", DateTime(timezone=True), nullable=False),
-    Column("deleted_at", DateTime(timezone=True), nullable=True),
+    Column("last_seen_at", DateTime(), nullable=False),
+    Column("deleted_at", DateTime(), nullable=True),
 )
 
 provenance = Table(
@@ -66,11 +90,11 @@ provenance = Table(
     Column("provider_name", String(128), nullable=False),
     Column("provider_track_id", String(256), nullable=True),
     Column("synced", Boolean, nullable=False),
-    Column("last_written_at", DateTime(timezone=True), nullable=False),
+    Column("last_written_at", DateTime(), nullable=False),
     Column("manual_diverged", Boolean, nullable=False, default=False),
     Column("sidecar_deleted", Boolean, nullable=False, default=False),
     Column("conflict_marker", String(128), nullable=True),
-    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(), nullable=False),
 )
 
 cooldowns = Table(
@@ -79,9 +103,9 @@ cooldowns = Table(
     Column("lookup_key", String(512), primary_key=True),
     Column("provider_name", String(128), nullable=False),
     Column("outcome", String(64), nullable=False),
-    Column("until_at", DateTime(timezone=True), nullable=False),
+    Column("until_at", DateTime(), nullable=False),
     Column("attempt_count", Integer, nullable=False, default=0),
-    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(), nullable=False),
 )
 
 scan_state = Table(
@@ -89,8 +113,8 @@ scan_state = Table(
     metadata,
     Column("library_root", Text, primary_key=True),
     Column("scan_kind", String(64), primary_key=True),
-    Column("last_started_at", DateTime(timezone=True), nullable=True),
-    Column("last_completed_at", DateTime(timezone=True), nullable=True),
+    Column("last_started_at", DateTime(), nullable=True),
+    Column("last_completed_at", DateTime(), nullable=True),
     Column("last_status", String(64), nullable=True),
     Column("last_error_code", String(128), nullable=True),
 )
@@ -106,9 +130,9 @@ control_requests = Table(
     Column("overwrite_existing", Boolean, nullable=False, default=False),
     Column("allow_manual_overwrite", Boolean, nullable=False, default=False),
     Column("status", String(32), nullable=False),
-    Column("requested_at", DateTime(timezone=True), nullable=False),
-    Column("claimed_at", DateTime(timezone=True), nullable=True),
-    Column("completed_at", DateTime(timezone=True), nullable=True),
+    Column("requested_at", DateTime(), nullable=False),
+    Column("claimed_at", DateTime(), nullable=True),
+    Column("completed_at", DateTime(), nullable=True),
     Column("error_code", String(128), nullable=True),
 )
 
