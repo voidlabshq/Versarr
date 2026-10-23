@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -80,7 +81,7 @@ def _build_identity(audio: Any) -> TrackIdentity:
     album_artist = _first_tag(tags, ["albumartist", "TPE2", "aART"])
     track_number = _parse_int(_first_tag(tags, ["tracknumber", "TRCK"]))
     disc_number = _parse_int(_first_tag(tags, ["discnumber", "TPOS"]))
-    release_year = _parse_int(_first_tag(tags, ["date", "TDRC", "\xa9day"]))
+    release_year = _parse_year(_first_tag(tags, ["date", "TDRC", "\xa9day"]))
     isrc = _first_tag(tags, ["isrc", "TSRC"])
     duration = int(getattr(getattr(audio, "info", None), "length", 0) or 0) or None
     return TrackIdentity(
@@ -108,7 +109,11 @@ def _build_identity(audio: Any) -> TrackIdentity:
 def _first_tag(tags: Any, keys: list[str]) -> str | None:
     for key in keys:
         if hasattr(tags, "get"):
-            value = tags.get(key)
+            try:
+                value = tags.get(key)
+            except (ValueError, KeyError):
+                # Keys from other tag formats (e.g. MP4 "\xa9alb") are invalid field names in Vorbis comments.
+                value = None
             if value:
                 return _coerce_tag_value(value)
         if hasattr(tags, "getall") and key in {
@@ -148,6 +153,13 @@ def _parse_int(value: str | None) -> int | None:
     raw = value.split("/", maxsplit=1)[0]
     digits = "".join(character for character in raw if character.isdigit())
     return int(digits) if digits else None
+
+
+def _parse_year(value: str | None) -> int | None:
+    if not value:
+        return None
+    match = re.match(r"\s*(\d{4})", value)
+    return int(match.group(1)) if match else None
 
 
 def _detect_embedded_lyrics(audio: Any) -> bool:
