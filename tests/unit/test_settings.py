@@ -48,3 +48,12 @@ def test_settings_default_http_port(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     assert settings.http_bind_host == "0.0.0.0"
     assert settings.http_bind_port == 9280
+
+
+def test_heartbeat_must_be_shorter_than_lease_ttl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VERSARR_LIBRARY_ROOTS", f'["{tmp_path.as_posix()}"]')
+    monkeypatch.setenv("VERSARR_RETRY__HEARTBEAT_SECONDS", "60")
+    monkeypatch.setenv("VERSARR_RETRY__LEASE_TTL_SECONDS", "60")
+
+    with pytest.raises(ValueError, match="heartbeat_seconds must be shorter"):
+        load_settings()

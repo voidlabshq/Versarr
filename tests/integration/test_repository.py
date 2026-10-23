@@ -207,3 +207,21 @@ async def test_repository_returns_timezone_aware_datetimes(sqlite_engine: Engine
     assert stored.tzinfo is not None
     assert stored > datetime.now(UTC)
     assert stored == until
+
+
+@pytest.mark.asyncio
+async def test_repository_lease_uses_requested_ttl(sqlite_engine: Engine) -> None:
+    repository = SqliteStateRepository(sqlite_engine)
+    await repository.enqueue_path(
+        library_root=Path("/music"),
+        media_path=Path("/music/a.flac"),
+        trigger="watcher",
+        priority="watcher",
+        event_kind="created",
+    )
+    now = datetime.now(UTC) + timedelta(seconds=1)
+
+    leased = await repository.lease_next_ready_job("worker-1", now, lease_ttl_seconds=17)
+
+    assert leased is not None
+    assert leased.lease_until == now + timedelta(seconds=17)

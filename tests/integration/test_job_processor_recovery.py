@@ -10,6 +10,7 @@ from sqlalchemy import Engine, select
 
 from versarr.application.services import JobProcessor
 from versarr.config import Settings
+from versarr.config.settings import RetrySettings
 from versarr.domain import (
     JobPriority,
     JobState,
@@ -278,10 +279,16 @@ async def test_job_processor_renews_lease_during_long_running_work(sqlite_engine
 
     repository = FailingProvenanceRepository(sqlite_engine)
     repository.fail_record_provenance = False
-    provider = FakeProvider("Hello\nWorld", delay_seconds=31)
+    provider = FakeProvider("Hello\nWorld", delay_seconds=2)
 
     await _enqueue_job(repository, media_path, library_root)
     processor, _ = _build_processor(repository, library_root, media_path, provider, now=datetime.now(UTC))
+    processor.settings = Settings(
+        library_roots=(library_root,),
+        state_dir=library_root / ".state",
+        sqlite_path=library_root / ".state" / "state.db",
+        retry=RetrySettings(heartbeat_seconds=1, lease_ttl_seconds=10),
+    )
 
     processed = await processor.process_next("worker-1")
 
