@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterable
+from fnmatch import fnmatch
 from pathlib import Path
 
 from versarr.application.contracts import LibraryScanner
 
 SUPPORTED_MEDIA_EXTENSIONS = {".flac", ".mp3", ".m4a", ".mp4", ".ogg", ".opus"}
+
+
+def is_ignored_temp_file(path: Path, patterns: Iterable[str]) -> bool:
+    name = path.name.lower()
+    return any(fnmatch(name, pattern.lower()) for pattern in patterns)
 
 
 def resolve_candidate_media_path(candidate_path: Path) -> Path | None:

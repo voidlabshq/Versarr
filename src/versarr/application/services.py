@@ -270,10 +270,10 @@ class JobProcessor:
 
     async def _heartbeat_loop(self, job: EnrichmentJob) -> None:
         while True:
-            await asyncio.sleep(30)
+            await asyncio.sleep(self.settings.retry.heartbeat_seconds)
             await self.repository.heartbeat_job(
                 job.job_key,
-                self.clock.now() + timedelta(seconds=120),
+                self.clock.now() + timedelta(seconds=self.settings.retry.lease_ttl_seconds),
             )
 
     async def _process_job(self, job: EnrichmentJob, logger: object) -> ProcessingOutcome:
@@ -435,7 +435,11 @@ class JobProcessor:
         )
 
     async def process_next(self, worker_id: str) -> bool:
-        job = await self.repository.lease_next_ready_job(worker_id, self.clock.now())
+        job = await self.repository.lease_next_ready_job(
+            worker_id,
+            self.clock.now(),
+            lease_ttl_seconds=self.settings.retry.lease_ttl_seconds,
+        )
         if job is None:
             return False
         logger = get_logger(

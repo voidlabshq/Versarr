@@ -5,6 +5,7 @@ from .metadata import MutagenMetadataReader
 from .scanner import (
     FilesystemScanner,
     SUPPORTED_MEDIA_EXTENSIONS,
+    is_ignored_temp_file,
     resolve_candidate_media_path,
 )
 from .sidecar import AtomicLrcWriter
@@ -19,5 +20,6 @@ __all__ = [
     "FilesystemScanner",
     "MutagenMetadataReader",
     "WatchdogFileWatcher",
+    "is_ignored_temp_file",
     "resolve_candidate_media_path",
 ]

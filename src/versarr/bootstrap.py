@@ -31,6 +31,7 @@ from versarr.infrastructure.filesystem import (
     FilesystemScanner,
     MutagenMetadataReader,
     WatchdogFileWatcher,
+    is_ignored_temp_file,
     resolve_candidate_media_path,
 )
 from versarr.infrastructure.persistence import SqliteStateRepository, create_engine, run_migrations
@@ -312,6 +313,8 @@ class VersarrRuntime:
 
     async def _handle_filesystem_event(self, candidate_path: Path, event_kind: str) -> None:
         self.metrics.watcher_events_total.labels(kind=event_kind).inc()
+        if is_ignored_temp_file(candidate_path, self.settings.scan.ignored_temp_patterns):
+            return
         media_path = resolve_candidate_media_path(candidate_path)
         if media_path is None:
             return

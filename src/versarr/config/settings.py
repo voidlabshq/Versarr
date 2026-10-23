@@ -32,6 +32,16 @@ class RetrySettings(BaseModel):
     heartbeat_seconds: int = 30
     lease_ttl_seconds: int = 120
 
+    @model_validator(mode="after")
+    def validate_lease(self) -> RetrySettings:
+        if self.heartbeat_seconds <= 0:
+            msg = "heartbeat_seconds must be positive"
+            raise ValueError(msg)
+        if self.heartbeat_seconds >= self.lease_ttl_seconds:
+            msg = "heartbeat_seconds must be shorter than lease_ttl_seconds"
+            raise ValueError(msg)
+        return self
+
 
 class CooldownSettings(BaseModel):
     not_found_seconds: int = 7 * 24 * 60 * 60

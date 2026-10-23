@@ -116,10 +116,15 @@ class SqliteStateRepository(StateRepository):
                 )
             )
 
-    async def lease_next_ready_job(self, worker_id: str, now: datetime) -> EnrichmentJob | None:
-        return await asyncio.to_thread(self._lease_next_ready_job_sync, worker_id, now)
+    async def lease_next_ready_job(
+        self,
+        worker_id: str,
+        now: datetime,
+        lease_ttl_seconds: int = 120,
+    ) -> EnrichmentJob | None:
+        return await asyncio.to_thread(self._lease_next_ready_job_sync, worker_id, now, lease_ttl_seconds)
 
-    def _lease_next_ready_job_sync(self, worker_id: str, now: datetime) -> EnrichmentJob | None:
+    def _lease_next_ready_job_sync(self, worker_id: str, now: datetime, lease_ttl_seconds: int) -> EnrichmentJob | None:
         with self._engine.begin() as connection:
             while True:
                 row = (
@@ -150,7 +155,7 @@ class SqliteStateRepository(StateRepository):
                 if row is None:
                     return None
 
-                lease_until = now + timedelta(seconds=120)
+                lease_until = now + timedelta(seconds=lease_ttl_seconds)
 
                 result = connection.execute(
                     update(jobs)

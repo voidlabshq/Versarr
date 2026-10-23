@@ -55,7 +55,12 @@ class StateRepository(Protocol):
         allow_manual_overwrite: bool = False,
     ) -> None: ...
 
-    async def lease_next_ready_job(self, worker_id: str, now: datetime) -> EnrichmentJob | None: ...
+    async def lease_next_ready_job(
+        self,
+        worker_id: str,
+        now: datetime,
+        lease_ttl_seconds: int = 120,
+    ) -> EnrichmentJob | None: ...
 
     async def heartbeat_job(self, job_key: str, lease_until: datetime) -> None: ...
 
