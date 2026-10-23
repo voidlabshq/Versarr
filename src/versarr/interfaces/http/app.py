@@ -33,7 +33,7 @@ def build_http_app(runtime: VersarrRuntime) -> FastAPI:
 
     @app.get("/metrics")
     async def metrics() -> Response:
-        payload = generate_latest()
+        payload = generate_latest(runtime.metrics.registry)
         return Response(content=payload, media_type=CONTENT_TYPE_LATEST)
 
     return app
