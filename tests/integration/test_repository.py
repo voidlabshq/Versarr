@@ -193,3 +193,17 @@ async def test_repository_does_not_double_lease_same_job(sqlite_engine: Engine) 
 
     assert len(leased) == 1
     assert leased[0].media_path == media_path
+
+
+@pytest.mark.asyncio
+async def test_repository_returns_timezone_aware_datetimes(sqlite_engine: Engine) -> None:
+    repository = SqliteStateRepository(sqlite_engine)
+    until = datetime.now(UTC) + timedelta(days=1)
+
+    await repository.record_cooldown("lookup", "lrclib", "not_found", until)
+    stored = await repository.get_cooldown("lookup", "lrclib")
+
+    assert stored is not None
+    assert stored.tzinfo is not None
+    assert stored > datetime.now(UTC)
+    assert stored == until
