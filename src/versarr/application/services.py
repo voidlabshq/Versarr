@@ -217,7 +217,6 @@ class JobProcessor:
         del logger
         self._ensure_within_root(job.media_path, job.library_root)
         snapshot = await self.metadata_reader.read_snapshot(job.media_path, job.library_root)
-        previous_snapshot = await self.repository.get_snapshot(job.media_path)
         await self.repository.record_snapshot(snapshot)
 
         provenance = await self.repository.get_provenance(job.media_path)
@@ -249,14 +248,6 @@ class JobProcessor:
         if not snapshot.lyrics_presence.sidecar_exists and snapshot.lyrics_presence.embedded_exists:
             self.metrics.embedded_preserved_total.inc()
             return _outcome(ProcessingCategory.PRESERVED, "existing_embedded_lyrics_preserved")
-
-        if (
-            not repair_missing_provenance
-            and previous_snapshot is not None
-            and previous_snapshot.meaningful_state_hash == snapshot.meaningful_state_hash
-            and not job.force
-        ):
-            return _outcome(ProcessingCategory.NOOP, "no_meaningful_change")
 
         now = self.clock.now()
         if not repair_missing_provenance:
