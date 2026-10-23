@@ -104,3 +104,12 @@ async def test_network_error_is_transient() -> None:
     result = await _provider(httpx.MockTransport(fail)).fetch(_IDENTITY)
 
     assert result.status == ProviderStatus.TRANSIENT_FAILURE
+
+
+@pytest.mark.parametrize(("header", "expected"), [("120", 120.0), ("0", 0.0), ("garbage", None)])
+@pytest.mark.asyncio
+async def test_retry_after_header_is_parsed(header: str, expected: float | None) -> None:
+    result = await _provider(response=httpx.Response(429, headers={"Retry-After": header})).fetch(_IDENTITY)
+
+    assert result.status == ProviderStatus.TRANSIENT_FAILURE
+    assert result.retry_after_seconds == expected

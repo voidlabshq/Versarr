@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     worker_concurrency: int = 2
     provider_base_url: str = "https://lrclib.net"
     provider_timeout_seconds: int = 10
+    provider_min_interval_seconds: float = 0.5
+    provider_circuit_failure_threshold: int = 3
+    provider_circuit_open_seconds: int = 60
+    provider_circuit_max_open_seconds: int = 900
     provider_user_agent: str = "Versarr/2.0.0"
     scan: ScanSettings = Field(default_factory=ScanSettings)
     retry: RetrySettings = Field(default_factory=RetrySettings)

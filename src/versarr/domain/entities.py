@@ -107,6 +107,7 @@ class ProviderResult:
     confidence: float
     matched_identity: TrackIdentity | None = None
     raw_metadata_digest: str | None = None
+    retry_after_seconds: float | None = None
 
     def __post_init__(self) -> None:
         if self.status == ProviderStatus.MATCHED and not self.lyrics_text:

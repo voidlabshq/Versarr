@@ -420,3 +420,45 @@ async def test_expired_not_found_cooldown_triggers_a_new_lookup(sqlite_engine: E
 
     assert provider.fetch_count == 2
     assert media_path.with_suffix(".lrc").exists()
+
+
+class ThrottledProvider:
+    async def fetch(self, identity: TrackIdentity) -> ProviderResult:
+        del identity
+        return ProviderResult(
+            status=ProviderStatus.THROTTLED,
+            provider_name="lrclib",
+            lyrics_text=None,
+            synced=False,
+            provider_track_id=None,
+            confidence=0.0,
+            retry_after_seconds=90,
+        )
+
+
+@pytest.mark.asyncio
+async def test_throttled_provider_defers_job_without_consuming_an_attempt(sqlite_engine: Engine, tmp_path: Path) -> None:
+    library_root = tmp_path / "music"
+    library_root.mkdir()
+    media_path = library_root / "track.flac"
+    media_path.write_bytes(b"audio")
+    repository = SqliteStateRepository(sqlite_engine)
+    await _enqueue_job(repository, media_path, library_root)
+    clock = FixedClock(datetime.now(UTC) + timedelta(seconds=1))
+    processor = JobProcessor(
+        repository=repository,
+        metadata_reader=FakeMetadataReader(library_root, media_path),
+        provider=ThrottledProvider(),
+        sidecar_writer=AtomicLrcWriter(),
+        metrics=NullMetrics(),
+        clock=clock,
+        settings=_build_settings(library_root, library_root / ".state"),
+    )
+
+    for _ in range(3):
+        assert await processor.process_next("worker-1") is True
+        job = _load_job(sqlite_engine, media_path)
+        assert job["state"] == JobState.PENDING
+        assert job["attempt_count"] == 0
+        assert job["last_reason_code"] == "provider_throttled"
+        clock.advance(91)

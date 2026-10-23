@@ -13,6 +13,7 @@ from versarr.application import (
     ReconciliationService,
     RecoveryService,
 )
+from versarr.application.resilient_provider import ResilientProvider
 from versarr.application.services import SystemClock
 from versarr.application.supervision import LoopSupervisor
 from versarr.config import Settings
@@ -60,11 +61,19 @@ class VersarrRuntime:
         )
         self._sidecar_writer = AtomicLrcWriter()
         self._metadata_reader = MutagenMetadataReader()
-        self._provider = LrclibProvider(
-            base_url=settings.provider_base_url,
-            timeout_seconds=settings.provider_timeout_seconds,
-            user_agent=settings.provider_user_agent,
+        self._provider = ResilientProvider(
+            LrclibProvider(
+                base_url=settings.provider_base_url,
+                timeout_seconds=settings.provider_timeout_seconds,
+                user_agent=settings.provider_user_agent,
+                metrics=self.metrics,
+            ),
+            min_interval_seconds=settings.provider_min_interval_seconds,
+            failure_threshold=settings.provider_circuit_failure_threshold,
+            open_seconds=settings.provider_circuit_open_seconds,
+            max_open_seconds=settings.provider_circuit_max_open_seconds,
             metrics=self.metrics,
+            logger=self.logger,
         )
         self._watcher = WatchdogFileWatcher(
             roots=settings.library_roots,
