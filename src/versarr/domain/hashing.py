@@ -3,11 +3,11 @@ from __future__ import annotations
 from hashlib import sha256
 
 from .entities import TrackSnapshot
-from .normalization import normalize_lyrics_text
+from .normalization import normalize_lyrics_for_comparison
 
 
 def hash_normalized_lyrics(value: str) -> str:
-    normalized = normalize_lyrics_text(value)
+    normalized = normalize_lyrics_for_comparison(value)
     return sha256(normalized.encode("utf-8")).hexdigest()
 
 
