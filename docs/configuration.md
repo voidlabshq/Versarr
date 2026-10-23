@@ -158,12 +158,22 @@ VERSARR_PROVIDER_BASE_URL="https://lrclib.net"
 VERSARR_PROVIDER_TIMEOUT_SECONDS=10
 ```
 
+#### Search fallback
+
+When `/api/get` finds no exact match, Versarr queries `/api/search` and accepts a candidate only if its title and artist match exactly (after normalisation). Disable it with:
+
+```env
+VERSARR_PROVIDER_SEARCH_FALLBACK=false
+```
+
+The `User-Agent` defaults to `Versarr/<version> (+https://github.com/voidlabshq/Versarr)`; override with `VERSARR_PROVIDER_USER_AGENT`.
+
 #### Rate limiting and circuit breaker
 
 All workers share one limiter and one circuit breaker in front of the provider.
 
 ```env
-# minimum spacing between provider requests
+# minimum spacing between provider HTTP requests (search fallback requests included)
 VERSARR_PROVIDER_MIN_INTERVAL_SECONDS=0.5
 # consecutive 429/5xx/network failures before the circuit opens
 VERSARR_PROVIDER_CIRCUIT_FAILURE_THRESHOLD=3

@@ -57,3 +57,13 @@ def test_heartbeat_must_be_shorter_than_lease_ttl(tmp_path: Path, monkeypatch: p
 
     with pytest.raises(ValueError, match="heartbeat_seconds must be shorter"):
         load_settings()
+
+
+def test_default_user_agent_identifies_version_and_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from versarr import __version__
+
+    monkeypatch.setenv("VERSARR_LIBRARY_ROOTS", f'["{tmp_path.as_posix()}"]')
+
+    settings = load_settings()
+
+    assert settings.provider_user_agent == f"Versarr/{__version__} (+https://github.com/voidlabshq/Versarr)"

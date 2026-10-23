@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
+from versarr.application.resilient_provider import RequestPacer
 from versarr.domain import ProviderStatus, TrackIdentity
 from versarr.infrastructure.provider import LrclibProvider
 
@@ -20,7 +21,13 @@ _IDENTITY = TrackIdentity(
 )
 
 
-def _provider(handler: httpx.MockTransport | None = None, *, response: httpx.Response | None = None) -> LrclibProvider:
+def _provider(
+    handler: httpx.MockTransport | None = None,
+    *,
+    response: httpx.Response | None = None,
+    search_fallback: bool = False,
+    pacer: RequestPacer | None = None,
+) -> LrclibProvider:
     transport = handler or httpx.MockTransport(lambda request: response or httpx.Response(500))
     return LrclibProvider(
         base_url="https://lrclib.test",
@@ -28,6 +35,8 @@ def _provider(handler: httpx.MockTransport | None = None, *, response: httpx.Res
         user_agent="Versarr/test",
         metrics=MagicMock(),
         transport=transport,
+        search_fallback=search_fallback,
+        pacer=pacer,
     )
 
 
@@ -113,3 +122,98 @@ async def test_retry_after_header_is_parsed(header: str, expected: float | None)
 
     assert result.status == ProviderStatus.TRANSIENT_FAILURE
     assert result.retry_after_seconds == expected
+
+
+def _routing_transport(get: httpx.Response, search: httpx.Response | None, calls: list[str] | None = None) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if calls is not None:
+            calls.append(request.url.path)
+        if request.url.path == "/api/get":
+            return get
+        assert search is not None, "search must not be called"
+        return search
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.asyncio
+async def test_search_fallback_finds_track_when_get_misses() -> None:
+    calls: list[str] = []
+    transport = _routing_transport(
+        httpx.Response(404),
+        httpx.Response(
+            200,
+            json=[
+                {"id": 1, "trackName": "Other", "artistName": "Else", "duration": 10, "plainLyrics": "no"},
+                {**_MATCH_PAYLOAD, "id": 9, "duration": 181},
+            ],
+        ),
+        calls,
+    )
+
+    result = await _provider(transport, search_fallback=True).fetch(_IDENTITY)
+
+    assert result.status == ProviderStatus.MATCHED
+    assert result.provider_track_id == "9"
+    assert calls == ["/api/get", "/api/search"]
+
+
+@pytest.mark.asyncio
+async def test_search_fallback_prefers_synced_lyrics_among_equal_matches() -> None:
+    plain = {**_MATCH_PAYLOAD, "id": 1, "syncedLyrics": None, "plainLyrics": "plain"}
+    synced = {**_MATCH_PAYLOAD, "id": 2}
+    transport = _routing_transport(httpx.Response(404), httpx.Response(200, json=[plain, synced]))
+
+    result = await _provider(transport, search_fallback=True).fetch(_IDENTITY)
+
+    assert result.provider_track_id == "2"
+    assert result.synced
+
+
+@pytest.mark.asyncio
+async def test_search_fallback_without_acceptable_candidate_is_not_found() -> None:
+    weak = {"id": 1, "trackName": "Another Song", "artistName": "Artist", "duration": 180, "plainLyrics": "x"}
+    transport = _routing_transport(httpx.Response(404), httpx.Response(200, json=[weak]))
+
+    result = await _provider(transport, search_fallback=True).fetch(_IDENTITY)
+
+    assert result.status == ProviderStatus.NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_search_failure_is_transient() -> None:
+    transport = _routing_transport(httpx.Response(404), httpx.Response(429))
+
+    result = await _provider(transport, search_fallback=True).fetch(_IDENTITY)
+
+    assert result.status == ProviderStatus.TRANSIENT_FAILURE
+
+
+@pytest.mark.asyncio
+async def test_search_is_skipped_when_fallback_disabled() -> None:
+    transport = _routing_transport(httpx.Response(404), None)
+
+    result = await _provider(transport, search_fallback=False).fetch(_IDENTITY)
+
+    assert result.status == ProviderStatus.NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_every_http_request_goes_through_the_pacer() -> None:
+    pacer = MagicMock()
+    pacer.wait = _async_counter()
+    transport = _routing_transport(httpx.Response(404), httpx.Response(200, json=[]))
+
+    await _provider(transport, search_fallback=True, pacer=pacer).fetch(_IDENTITY)
+
+    assert pacer.wait.calls == 2
+
+
+def _async_counter() -> object:
+    class _Counter:
+        calls = 0
+
+        async def __call__(self) -> None:
+            self.calls += 1
+
+    return _Counter()

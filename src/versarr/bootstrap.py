@@ -13,7 +13,7 @@ from versarr.application import (
     ReconciliationService,
     RecoveryService,
 )
-from versarr.application.resilient_provider import ResilientProvider
+from versarr.application.resilient_provider import RequestPacer, ResilientProvider
 from versarr.application.services import SystemClock
 from versarr.application.supervision import LoopSupervisor
 from versarr.config import Settings
@@ -68,8 +68,9 @@ class VersarrRuntime:
                 timeout_seconds=settings.provider_timeout_seconds,
                 user_agent=settings.provider_user_agent,
                 metrics=self.metrics,
+                pacer=RequestPacer(settings.provider_min_interval_seconds),
+                search_fallback=settings.provider_search_fallback,
             ),
-            min_interval_seconds=settings.provider_min_interval_seconds,
             failure_threshold=settings.provider_circuit_failure_threshold,
             open_seconds=settings.provider_circuit_open_seconds,
             max_open_seconds=settings.provider_circuit_max_open_seconds,
