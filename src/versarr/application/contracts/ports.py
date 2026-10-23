@@ -12,6 +12,7 @@ from versarr.domain import (
     EnrichmentJob,
     ProvenanceRecord,
     ProviderResult,
+    ReconciliationRecord,
     SnapshotStateRecord,
     TrackIdentity,
     TrackSnapshot,
@@ -69,6 +70,8 @@ class StateRepository(Protocol):
     async def get_snapshot(self, media_path: Path) -> SnapshotStateRecord | None: ...
 
     async def record_snapshot(self, snapshot: TrackSnapshot) -> None: ...
+
+    async def list_reconciliation_records(self, library_root: Path) -> dict[Path, ReconciliationRecord]: ...
 
     async def mark_missing_snapshots_deleted(
         self,

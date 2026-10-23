@@ -84,6 +84,19 @@ class SnapshotStateRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class ReconciliationRecord:
+    """What reconciliation already knows about a tracked file: last snapshot facts plus its job."""
+
+    file_size: int
+    file_mtime_ns: int
+    sidecar_exists: bool
+    has_lyrics: bool
+    deleted: bool
+    job_state: str | None
+    job_updated_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class DirectoryGapSummary:
     library_root: Path
     directory_path: Path

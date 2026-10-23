@@ -19,6 +19,7 @@ from versarr.domain import (
     JobPriority,
     JobState,
     ProvenanceRecord,
+    ReconciliationRecord,
     SnapshotStateRecord,
     TrackSnapshot,
     TriggerKind,
@@ -575,6 +576,42 @@ class SqliteStateRepository(StateRepository):
         with self._engine.begin() as connection:
             row = connection.execute(select(func.count()).select_from(cooldowns).where(cooldowns.c.until_at > now)).scalar_one()
         return int(row)
+
+    async def list_reconciliation_records(self, library_root: Path) -> dict[Path, ReconciliationRecord]:
+        return await asyncio.to_thread(self._list_reconciliation_records_sync, library_root)
+
+    def _list_reconciliation_records_sync(self, library_root: Path) -> dict[Path, ReconciliationRecord]:
+        with self._engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    select(
+                        track_snapshots.c.media_path,
+                        track_snapshots.c.file_size,
+                        track_snapshots.c.file_mtime_ns,
+                        track_snapshots.c.sidecar_exists,
+                        track_snapshots.c.embedded_exists,
+                        track_snapshots.c.deleted_at,
+                        jobs.c.state.label("job_state"),
+                        jobs.c.updated_at.label("job_updated_at"),
+                    )
+                    .select_from(track_snapshots.outerjoin(jobs, jobs.c.job_key == track_snapshots.c.media_path))
+                    .where(track_snapshots.c.library_root == str(library_root))
+                )
+                .mappings()
+                .all()
+            )
+        return {
+            Path(str(row["media_path"])): ReconciliationRecord(
+                file_size=int(row["file_size"]),
+                file_mtime_ns=int(row["file_mtime_ns"]),
+                sidecar_exists=bool(row["sidecar_exists"]),
+                has_lyrics=bool(row["sidecar_exists"]) or bool(row["embedded_exists"]),
+                deleted=row["deleted_at"] is not None,
+                job_state=str(row["job_state"]) if row["job_state"] is not None else None,
+                job_updated_at=row["job_updated_at"],
+            )
+            for row in rows
+        }
 
     async def mark_missing_snapshots_deleted(
         self,

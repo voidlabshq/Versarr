@@ -112,6 +112,7 @@ class VersarrRuntime:
             ingestion=ingestion,
             clock=self.clock,
             metrics=self.metrics,
+            revisit_after_seconds=self.settings.scan.revisit_after_seconds,
         )
         self._control_service = ControlRequestService(
             repository=self.repository,
@@ -206,6 +207,7 @@ class VersarrRuntime:
                     root,
                     scan_kind=ScanKind.RECONCILIATION,
                     trigger=TriggerKind.MANUAL_RESCAN,
+                    evaluate_all=True,
                 )
             processed_jobs = 0
             while await processor.process_next("scan-once"):
