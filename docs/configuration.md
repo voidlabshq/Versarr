@@ -180,12 +180,13 @@ While the circuit is open, jobs are deferred without using up retry attempts. Af
 
 ### Reconciliation Interval
 
-Controls periodic full library reevaluation.
+Controls how often the library is compared with disk. Each pass only queues files that need evaluation: new or changed files, files whose `.lrc` sidecar appeared or disappeared, and files without lyrics that were last evaluated more than `REVISIT_AFTER_SECONDS` ago (so expired cooldowns and failed lookups get another chance). Manual full scans (`request-full-scan`, `scan`) always evaluate everything.
 
 Example:
 
 ```env
 VERSARR_SCAN__RECONCILIATION_INTERVAL_SECONDS=900
+VERSARR_SCAN__REVISIT_AFTER_SECONDS=21600
 ```
 
 ---

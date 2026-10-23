@@ -42,6 +42,7 @@ class CooldownSettings(BaseModel):
 class ScanSettings(BaseModel):
     reconciliation_interval_seconds: int = 15 * 60
     startup_reconciliation: bool = True
+    revisit_after_seconds: int = 6 * 60 * 60
     stability_quiet_period_seconds: int = 15
     stability_probe_gap_seconds: int = 5
     ignored_temp_patterns: tuple[str, ...] = (

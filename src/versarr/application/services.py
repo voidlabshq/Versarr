@@ -23,11 +23,13 @@ from versarr.domain import (
     ControlRequestType,
     EnrichmentJob,
     JobPriority,
+    JobState,
     ProcessingCategory,
     ProcessingOutcome,
     ProvenanceRecord,
     ProviderResult,
     ProviderStatus,
+    ReconciliationRecord,
     RetryClassification,
     RetryDecision,
     ScanKind,
@@ -110,8 +112,21 @@ class ReconciliationService:
     ingestion: IngestionService
     clock: Clock
     metrics: MetricsFacade
+    revisit_after_seconds: int = 6 * 60 * 60
 
-    async def scan_root(self, root: Path, scan_kind: ScanKind, trigger: TriggerKind) -> int:
+    async def scan_root(
+        self,
+        root: Path,
+        scan_kind: ScanKind,
+        trigger: TriggerKind,
+        *,
+        evaluate_all: bool = False,
+    ) -> int:
+        """Reconcile ``root`` with disk and return how many files were queued for evaluation.
+
+        Unless ``evaluate_all`` is set, only files that need it are queued: new or changed files,
+        files whose sidecar appeared or disappeared, and lyric-less files not looked at recently.
+        """
         started = perf_counter()
         logger = get_logger(
             "reconciliation",
@@ -123,7 +138,13 @@ class ReconciliationService:
         await self.repository.record_scan_start(root, scan_kind, self.clock.now())
         try:
             candidates = await self.scanner.scan(root)
-            for candidate in candidates:
+            to_evaluate = candidates
+            if not evaluate_all:
+                records = await self.repository.list_reconciliation_records(root)
+                facts = await asyncio.to_thread(_read_file_facts, candidates)
+                now = self.clock.now()
+                to_evaluate = [path for path, fact in facts if _needs_evaluation(records.get(path), fact, now, self.revisit_after_seconds)]
+            for candidate in to_evaluate:
                 await self.ingestion.ingest_candidate(
                     library_root=root,
                     media_path=candidate,
@@ -135,8 +156,8 @@ class ReconciliationService:
             if root.is_dir():
                 removed = await self.repository.mark_missing_snapshots_deleted(root, candidates, self.clock.now())
             await self.repository.record_scan_finish(root, scan_kind, self.clock.now(), "ok")
-            logger.info("scan_root_completed", candidates=len(candidates), removed=removed)
-            return len(candidates)
+            logger.info("scan_root_completed", candidates=len(candidates), enqueued=len(to_evaluate), removed=removed)
+            return len(to_evaluate)
         except Exception as error:
             await self.repository.record_scan_finish(
                 root,
@@ -149,6 +170,46 @@ class ReconciliationService:
             raise
         finally:
             self.metrics.scan_duration_seconds.labels(kind=scan_kind).observe(perf_counter() - started)
+
+
+@dataclass(frozen=True, slots=True)
+class _FileFacts:
+    size: int
+    mtime_ns: int
+    sidecar_exists: bool
+
+
+def _read_file_facts(paths: list[Path]) -> list[tuple[Path, _FileFacts]]:
+    facts: list[tuple[Path, _FileFacts]] = []
+    for path in paths:
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        facts.append((path, _FileFacts(stat.st_size, stat.st_mtime_ns, path.with_suffix(".lrc").is_file())))
+    return facts
+
+
+def _needs_evaluation(
+    record: ReconciliationRecord | None,
+    facts: _FileFacts,
+    now: datetime,
+    revisit_after_seconds: int,
+) -> bool:
+    if record is None or record.deleted or record.job_state is None:
+        return True
+    if record.file_size != facts.size or record.file_mtime_ns != facts.mtime_ns:
+        return True
+    if record.sidecar_exists != facts.sidecar_exists:
+        return True
+    if record.job_state in {JobState.PENDING, JobState.PROCESSING}:
+        return False
+    if record.has_lyrics:
+        return False
+    # Lyric-less files are looked at again once the last evaluation is old enough (cooldowns, failures).
+    if record.job_updated_at is None:
+        return True
+    return now - record.job_updated_at >= timedelta(seconds=revisit_after_seconds)
 
 
 @dataclass(slots=True)
@@ -173,6 +234,7 @@ class ControlRequestService:
                         request.target_root,
                         ScanKind.RECONCILIATION,
                         TriggerKind.FORCE_RESCAN if request.force else TriggerKind.MANUAL_RESCAN,
+                        evaluate_all=True,
                     )
                 else:
                     if request.target_root is None or request.target_path is None:
