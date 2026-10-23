@@ -18,7 +18,8 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 ENV PYTHONUNBUFFERED=1
 
-RUN useradd --create-home --uid 10001 versarr \
+RUN groupadd --gid 1000 versarr \
+    && useradd --create-home --uid 1000 --gid 1000 versarr \
     && mkdir -p /state /app
 
 WORKDIR /app

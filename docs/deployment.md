@@ -216,6 +216,23 @@ Recommendations:
 
 ---
 
+## Container user and file ownership
+
+The image runs as user `versarr` with uid and gid **1000:1000**. This matches the first user on most Linux systems, so bind mounts owned by that user work without changes.
+
+Versarr must be able to write to `/state` and to your music library (it writes `.lrc` files next to the tracks). If your mounted directories belong to a different user, either:
+
+- run the container as that user in compose: `user: "<uid>:<gid>"` (find yours with `id -u` and `id -g`), or
+- change the owner of the directories to 1000:1000.
+
+Named volumes created by versions up to 2.1.0 belong to uid 10001. After upgrading, fix them once:
+
+```bash
+docker run --rm -u 0 -v versarr-state:/state ghcr.io/voidlabshq/versarr:latest chown -R 1000:1000 /state
+```
+
+---
+
 ## Troubleshooting
 
 ### Container starts but no lyrics are written
@@ -255,6 +272,8 @@ Validate:
 ---
 
 ### SQLite startup failures
+
+A `PermissionError` on `/state/versarr.lock` means the container user (1000:1000 by default) cannot write the mounted directory. See [Container user and file ownership](#container-user-and-file-ownership).
 
 Check:
 
